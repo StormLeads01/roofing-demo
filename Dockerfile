@@ -1,12 +1,13 @@
-FROM nginx:alpine
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY RoofingLeadGeneration/RoofingLeadGeneration.csproj RoofingLeadGeneration/
+RUN dotnet restore RoofingLeadGeneration/RoofingLeadGeneration.csproj
+COPY . .
+RUN dotnet publish RoofingLeadGeneration/RoofingLeadGeneration.csproj -c Release -o /app/publish
 
-# Copy the construction page to nginx html directory
-COPY construction.html /usr/share/nginx/html/index.html
-
-# Expose port 8080 (Fly.io default)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
-
-# Configure nginx to listen on port 8080
-RUN sed -i 's/listen\s*80;/listen 8080;/g' /etc/nginx/conf.d/default.conf
-
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["dotnet", "RoofingLeadGeneration.dll"]

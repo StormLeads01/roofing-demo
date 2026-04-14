@@ -1,48 +1,747 @@
+@{
+    Layout = null;
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roofing Lead Generation Tool</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1, h2 { color: #333; }
-        .container { max-width: 800px; margin: auto; }
-        .tool { margin: 20px 0; }
-        input { padding: 10px; width: 80%; }
-        button { padding: 10px 15px; }
-        #roofHealthResult { margin-top: 20px; }
-    </style>
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB2YmUC-KAbjTUSO4p9NNIaG_3af4iTevM&libraries=places"></script>
-</head>
-<body>
-    <div class="container">
-        <h1>Welcome to Roofing Lead Generation Tool</h1>
-        
-        <div class="tool">
-            <h2>Roof Health Check</h2>
-            <input type="text" id="address" placeholder="Enter your full address" onFocus="initAutocomplete()" />
-            <button onclick="checkRoofHealth()">Check Roof Health</button>
-            <div id="roofHealthResult"></div>
-        </div>
-        
-        <script>
-            function initAutocomplete() {
-                const input = document.getElementById('address');
-                const autocomplete = new google.maps.places.Autocomplete(input);
-            }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StormLead Pro — Roofing Lead Generation</title>
 
-            async function checkRoofHealth() {
-                const address = document.getElementById('address').value;
-                try {
-                    const response = await fetch(`/RoofHealth/Check?address=${encodeURIComponent(address)}`);
-                    const data = await response.text();
-                    document.getElementById('roofHealthResult').innerText = data;
-                } catch (error) {
-                    document.getElementById('roofHealthResult').innerText = "Error fetching data.";
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        navy:  { DEFAULT: '#0f172a', 700: '#1e293b', 600: '#334155', 500: '#475569' },
+                        brand: { DEFAULT: '#f97316', dark: '#ea6c0a', light: '#fdba74' }
+                    }
                 }
             }
-        </script>
+        }
+    </script>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@@1.9.4/dist/leaflet.css" />
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Google Maps Places — define callback BEFORE async script loads -->
+    <script>
+        // Coords captured when user picks from autocomplete dropdown
+        var _pickedLat = 0, _pickedLng = 0;
+
+        function initAutocomplete() {
+            const input = document.getElementById('addressInput');
+            if (!input) { document.addEventListener('DOMContentLoaded', initAutocomplete); return; }
+            const ac = new google.maps.places.Autocomplete(input, { types: ['geocode'] });
+            ac.addListener('place_changed', () => {
+                const place = ac.getPlace();
+                if (place && place.formatted_address) input.value = place.formatted_address;
+                if (place && place.geometry && place.geometry.location) {
+                    _pickedLat = place.geometry.location.lat();
+                    _pickedLng = place.geometry.location.lng();
+                }
+            });
+        }
+
+        // Client-side geocode fallback (used when user types manually)
+        function clientGeocode(address) {
+            return new Promise(resolve => {
+                const geocoder = new google.maps.Geocoder();
+                geocoder.geocode({ address }, (results, status) => {
+                    if (status === 'OK' && results[0]) {
+                        resolve({
+                            lat: results[0].geometry.location.lat(),
+                            lng: results[0].geometry.location.lng()
+                        });
+                    } else {
+                        resolve(null);
+                    }
+                });
+            });
+        }
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB2YmUC-KAbjTUSO4p9NNIaG_3af4iTevM&libraries=places&callback=initAutocomplete" async></script>
+
+    <style>
+        /* ── base ── */
+        *, *::before, *::after { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { background: #0f172a; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
+
+        /* ── Google autocomplete dropdown fix ── */
+        .pac-container { z-index: 9999 !important; }
+
+        /* ── map ── */
+        #map { height: 520px; border-radius: 12px; }
+
+        /* ── card hover ── */
+        .prop-card {
+            transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
+            border: 1.5px solid transparent;
+        }
+        .prop-card:hover {
+            box-shadow: 0 0 0 2px #f97316, 0 8px 24px rgba(0,0,0,0.45);
+            transform: translateY(-2px);
+            border-color: #f97316;
+        }
+        .prop-card.highlighted {
+            border-color: #f97316;
+            box-shadow: 0 0 0 2px #f97316, 0 8px 32px rgba(249,115,22,0.25);
+        }
+
+        /* ── filter btn ── */
+        .filter-btn { transition: background 0.15s, color 0.15s; }
+        .filter-btn.active { background: #f97316; color: #fff; }
+
+        /* ── spinner ── */
+        @@keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { animation: spin 0.8s linear infinite; }
+
+        /* ── leaflet marker overrides ── */
+        .leaflet-div-icon { background: transparent; border: none; }
+
+        /* ── scrollbar ── */
+        .card-scroll::-webkit-scrollbar { width: 6px; }
+        .card-scroll::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
+        .card-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .card-scroll::-webkit-scrollbar-thumb:hover { background: #f97316; }
+
+        /* ── gradient hero ── */
+        .hero-gradient {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        }
+
+        /* ── badge glow ── */
+        .badge-high   { background: rgba(239,68,68,0.15);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); }
+        .badge-medium { background: rgba(249,115,22,0.15); color: #fdba74; border: 1px solid rgba(249,115,22,0.4); }
+        .badge-low    { background: rgba(34,197,94,0.15);  color: #86efac; border: 1px solid rgba(34,197,94,0.4); }
+
+        /* ── pulse for count badges ── */
+        .summary-badge { transition: transform 0.2s; }
+        .summary-badge:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ══════════════════════════════════════════════════════════════
+     HEADER / NAV
+══════════════════════════════════════════════════════════════ -->
+<header class="sticky top-0 z-50 bg-navy border-b border-slate-700/60 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+
+        <!-- Logo -->
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow">
+                <i class="fa-solid fa-house-chimney text-white text-sm"></i>
+            </div>
+            <span class="text-lg font-bold tracking-tight">
+                Storm<span class="text-brand">Lead</span> Pro
+            </span>
+        </div>
+
+        <!-- Nav links -->
+        <nav class="hidden md:flex items-center gap-6 text-sm text-slate-400">
+            <a href="#search" class="hover:text-white transition-colors">Search</a>
+            <a href="#results" class="hover:text-white transition-colors">Results</a>
+            <span class="text-slate-600">|</span>
+            <span class="px-3 py-1 rounded-full bg-brand/10 text-brand border border-brand/30 text-xs font-semibold">
+                <i class="fa-solid fa-circle-dot mr-1"></i>Live Demo
+            </span>
+        </nav>
     </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════
+     HERO / SEARCH
+══════════════════════════════════════════════════════════════ -->
+<section id="search" class="hero-gradient py-16 sm:py-20 border-b border-slate-700/40">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 text-center">
+
+        <!-- Badge -->
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand/10 border border-brand/30 text-brand text-xs font-semibold mb-6">
+            <i class="fa-solid fa-bolt"></i>
+            Powered by Hail Impact Intelligence
+        </div>
+
+        <!-- Headline -->
+        <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight mb-4">
+            Find Roofing Leads in<br />
+            <span class="text-brand">Any Neighborhood</span>
+        </h1>
+        <p class="text-slate-400 text-lg mb-10">
+            Enter any address to instantly scan nearby properties for hail damage risk and storm history.
+        </p>
+
+        <!-- Search card -->
+        <div class="bg-slate-800/80 backdrop-blur rounded-2xl shadow-2xl border border-slate-700/60 p-6 sm:p-8 text-left">
+            <div class="flex flex-col sm:flex-row gap-3">
+
+                <!-- Address input -->
+                <div class="relative flex-1">
+                    <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-location-dot text-slate-400"></i>
+                    </div>
+                    <input
+                        id="addressInput"
+                        type="text"
+                        placeholder="123 Main St, Dallas, TX"
+                        class="w-full pl-9 pr-4 py-3.5 rounded-xl bg-slate-900 border border-slate-600 text-white placeholder-slate-500
+                               focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition"
+                    />
+                </div>
+
+                <!-- Radius selector -->
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-circle-dot text-slate-400 text-xs"></i>
+                    </div>
+                    <select
+                        id="radiusSelect"
+                        class="pl-8 pr-8 py-3.5 rounded-xl bg-slate-900 border border-slate-600 text-white appearance-none
+                               focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition cursor-pointer"
+                    >
+                        <option value="0.25">0.25 mi</option>
+                        <option value="0.5" selected>0.5 mi</option>
+                        <option value="1">1 mi</option>
+                    </select>
+                    <div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>
+                    </div>
+                </div>
+
+                <!-- Submit button -->
+                <button
+                    id="scanBtn"
+                    onclick="runScan()"
+                    class="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-brand hover:bg-brand-dark
+                           text-white font-bold text-sm tracking-wide shadow-lg shadow-brand/30
+                           transition-all active:scale-95 whitespace-nowrap"
+                >
+                    <span id="btnText"><i class="fa-solid fa-radar mr-1"></i>Scan Neighborhood</span>
+                    <span id="btnSpinner" class="hidden">
+                        <svg class="spinner w-4 h-4" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="60" stroke-dashoffset="20" />
+                        </svg>
+                    </span>
+                </button>
+            </div>
+
+            <!-- Error message -->
+            <div id="errorMsg" class="hidden mt-4 flex items-center gap-2 text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-4 py-3">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span id="errorText">Something went wrong. Please try again.</span>
+            </div>
+        </div>
+
+        <!-- Stats strip -->
+        <div class="mt-8 flex flex-wrap justify-center gap-6 text-sm text-slate-500">
+            <span><i class="fa-solid fa-check-circle text-brand mr-1"></i>Real-time geocoding</span>
+            <span><i class="fa-solid fa-check-circle text-brand mr-1"></i>20+ properties per scan</span>
+            <span><i class="fa-solid fa-check-circle text-brand mr-1"></i>CSV export ready</span>
+        </div>
+    </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     RESULTS SECTION
+══════════════════════════════════════════════════════════════ -->
+<section id="results" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+    <!-- ── Summary bar ── -->
+    <div class="mb-6 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-bold text-white truncate">
+                <i class="fa-solid fa-map-pin text-brand mr-2"></i>
+                <span id="centerLabel">Results</span>
+            </h2>
+        </div>
+        <!-- count badges -->
+        <div class="flex flex-wrap gap-2">
+            <div class="summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-700 border border-slate-600 text-sm">
+                <span class="text-slate-300 font-medium">Total:</span>
+                <span id="countTotal" class="text-white font-bold">0</span>
+            </div>
+            <div class="summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-sm">
+                <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
+                <span class="text-red-300 font-medium">High:</span>
+                <span id="countHigh" class="text-red-200 font-bold">0</span>
+            </div>
+            <div class="summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-sm">
+                <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+                <span class="text-orange-300 font-medium">Medium:</span>
+                <span id="countMedium" class="text-orange-200 font-bold">0</span>
+            </div>
+            <div class="summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30 text-sm">
+                <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+                <span class="text-green-300 font-medium">Low:</span>
+                <span id="countLow" class="text-green-200 font-bold">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Toolbar: filters + sort + export ── -->
+    <div class="mb-5 flex flex-wrap items-center gap-3">
+
+        <!-- Filter buttons -->
+        <div class="flex rounded-xl overflow-hidden border border-slate-700 shadow-sm">
+            <button class="filter-btn active px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 transition" data-filter="all">All</button>
+            <button class="filter-btn px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 transition border-l border-slate-700 text-red-300" data-filter="High">
+                <i class="fa-solid fa-circle-exclamation mr-1"></i>High
+            </button>
+            <button class="filter-btn px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 transition border-l border-slate-700 text-orange-300" data-filter="Medium">
+                <i class="fa-solid fa-circle-minus mr-1"></i>Medium
+            </button>
+            <button class="filter-btn px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 transition border-l border-slate-700 text-green-300" data-filter="Low">
+                <i class="fa-solid fa-circle-check mr-1"></i>Low
+            </button>
+        </div>
+
+        <!-- Sort -->
+        <div class="relative">
+            <div class="absolute inset-y-0 left-2.5 flex items-center pointer-events-none">
+                <i class="fa-solid fa-arrow-up-wide-short text-slate-500 text-xs"></i>
+            </div>
+            <select id="sortSelect"
+                class="pl-7 pr-6 py-2 text-xs rounded-xl bg-slate-800 border border-slate-700 text-slate-300
+                       appearance-none focus:outline-none focus:ring-1 focus:ring-brand cursor-pointer">
+                <option value="risk">Sort: Risk Level</option>
+                <option value="date">Sort: Storm Date</option>
+                <option value="age">Sort: Roof Age</option>
+                <option value="address">Sort: Address</option>
+            </select>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <!-- Export buttons -->
+        <button onclick="exportCSV()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600
+                   border border-slate-600 text-xs font-semibold text-slate-200 transition shadow">
+            <i class="fa-solid fa-file-csv text-brand"></i>Export CSV
+        </button>
+        <button onclick="printList()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600
+                   border border-slate-600 text-xs font-semibold text-slate-200 transition shadow">
+            <i class="fa-solid fa-print text-brand"></i>Print List
+        </button>
+    </div>
+
+    <!-- ── Two-column layout ── -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Left: Property card list -->
+        <div class="card-scroll overflow-y-auto" style="max-height: 540px;" id="cardList">
+            <!-- Cards injected by JS -->
+        </div>
+
+        <!-- Right: Map -->
+        <div class="sticky top-20 self-start">
+            <div class="rounded-2xl overflow-hidden border border-slate-700 shadow-xl">
+                <div id="map"></div>
+            </div>
+            <p class="mt-2 text-xs text-slate-500 text-center">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                Click a map marker to highlight the property card
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     FOOTER
+══════════════════════════════════════════════════════════════ -->
+<footer class="mt-16 border-t border-slate-700/60 bg-slate-900/60">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+        <div class="flex items-center gap-2">
+            <div class="w-6 h-6 bg-brand/80 rounded flex items-center justify-center">
+                <i class="fa-solid fa-house-chimney text-white text-xs"></i>
+            </div>
+            <span>StormLead Pro &copy; 2026</span>
+        </div>
+        <div class="flex gap-5">
+            <span>Simulated hail data — swap in real API for production</span>
+        </div>
+    </div>
+</footer>
+
+<!-- ══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════════════════ -->
+<script>
+    // ─── State ───────────────────────────────────────────────────
+    let allProperties  = [];
+    let currentFilter  = 'all';
+    let currentSort    = 'risk';
+    let currentAddress = '';
+    let currentLat     = 0;
+    let currentLng     = 0;
+    let leafletMap     = null;
+    let mapMarkers     = [];
+
+    // ─── Scan ─────────────────────────────────────────────────────
+    async function runScan() {
+        const address = document.getElementById('addressInput').value.trim();
+        const radius  = document.getElementById('radiusSelect').value;
+
+        if (!address) {
+            showError('Please enter a neighborhood address.');
+            return;
+        }
+
+        hideError();
+        setLoading(true);
+
+        try {
+            // Use coords from autocomplete pick; fall back to client-side geocoder
+            let lat = _pickedLat, lng = _pickedLng;
+            if (!lat || !lng) {
+                const geo = await clientGeocode(address);
+                if (!geo) {
+                    showError('Could not locate that address. Try selecting a suggestion from the dropdown.');
+                    setLoading(false);
+                    return;
+                }
+                lat = geo.lat;
+                lng = geo.lng;
+            }
+            currentLat = lat;
+            currentLng = lng;
+
+            const url = `/RoofHealth/Neighborhood?address=${encodeURIComponent(address)}&radius=${radius}&lat=${lat}&lng=${lng}`;
+            const resp = await fetch(url);
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ error: 'Server error' }));
+                throw new Error(err.error || `HTTP ${resp.status}`);
+            }
+
+            const data = await resp.json();
+            currentAddress = address;
+            allProperties = data.properties || [];
+
+            renderResults(data);
+        } catch (e) {
+            showError(e.message || 'Failed to fetch results. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // Allow Enter key to trigger scan; reset coords if user edits the field manually
+    document.getElementById('addressInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') runScan();
+        else { _pickedLat = 0; _pickedLng = 0; }
+    });
+
+    // ─── Render Results ───────────────────────────────────────────
+    function renderResults(data) {
+        document.getElementById('centerLabel').textContent = data.centerAddress || currentAddress;
+
+        // Update summary counts
+        const high   = allProperties.filter(p => p.riskLevel === 'High').length;
+        const medium = allProperties.filter(p => p.riskLevel === 'Medium').length;
+        const low    = allProperties.filter(p => p.riskLevel === 'Low').length;
+        document.getElementById('countTotal').textContent  = allProperties.length;
+        document.getElementById('countHigh').textContent   = high;
+        document.getElementById('countMedium').textContent = medium;
+        document.getElementById('countLow').textContent    = low;
+
+        // Show results section
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // Init / re-init map
+        initMap(data.lat, data.lng);
+
+        // Apply current filter + sort and render cards
+        applyFilterAndSort();
+    }
+
+    // ─── Map ──────────────────────────────────────────────────────
+    function initMap(lat, lng) {
+        if (leafletMap) {
+            leafletMap.remove();
+            leafletMap = null;
+        }
+        mapMarkers = [];
+
+        leafletMap = L.map('map', {
+            center: [lat, lng],
+            zoom: 15,
+            zoomControl: true
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com">CARTO</a>',
+            maxZoom: 19
+        }).addTo(leafletMap);
+
+        // Center marker (star)
+        const centerIcon = L.divIcon({
+            html: `<div style="width:16px;height:16px;background:#f97316;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(249,115,22,0.8)"></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+            className: ''
+        });
+        L.marker([lat, lng], { icon: centerIcon })
+            .addTo(leafletMap)
+            .bindPopup('<b style="color:#0f172a">📍 Search Center</b>');
+
+        // Property markers added by applyFilterAndSort
+    }
+
+    function addMarkersToMap(properties) {
+        // Clear old markers
+        mapMarkers.forEach(m => leafletMap.removeLayer(m));
+        mapMarkers = [];
+
+        properties.forEach((p, idx) => {
+            const color = riskColor(p.riskLevel);
+            const icon = L.divIcon({
+                html: `<div style="width:14px;height:14px;background:${color};border:2px solid rgba(255,255,255,0.7);
+                              border-radius:50%;box-shadow:0 0 6px ${color}88;cursor:pointer"></div>`,
+                iconSize: [14, 14],
+                iconAnchor: [7, 7],
+                className: ''
+            });
+
+            const m = L.marker([p.lat, p.lng], { icon })
+                .addTo(leafletMap)
+                .bindPopup(buildPopupHtml(p));
+
+            m.on('click', () => {
+                highlightCard(idx);
+            });
+
+            mapMarkers.push(m);
+        });
+    }
+
+    function buildPopupHtml(p) {
+        const c = riskColor(p.riskLevel);
+        return `
+            <div style="min-width:180px;font-family:system-ui,sans-serif;color:#0f172a">
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px">${p.address}</div>
+                <div style="display:inline-block;padding:2px 8px;border-radius:9999px;background:${c}22;
+                            color:${c};font-size:11px;font-weight:600;border:1px solid ${c}44;margin-bottom:6px">
+                    ${p.riskLevel} Risk
+                </div>
+                <div style="font-size:11px;color:#475569;line-height:1.6">
+                    <b>Hail:</b> ${p.hailSize}<br>
+                    <b>Storm:</b> ${p.lastStormDate}<br>
+                    <b>Damage:</b> ${p.estimatedDamage}<br>
+                    <b>Roof Age:</b> ${p.roofAge} yrs
+                </div>
+            </div>`;
+    }
+
+    // ─── Cards ────────────────────────────────────────────────────
+    function applyFilterAndSort() {
+        let props = [...allProperties];
+
+        // Filter
+        if (currentFilter !== 'all') {
+            props = props.filter(p => p.riskLevel === currentFilter);
+        }
+
+        // Sort
+        props.sort((a, b) => {
+            if (currentSort === 'risk') {
+                const order = { High: 0, Medium: 1, Low: 2 };
+                return (order[a.riskLevel] ?? 3) - (order[b.riskLevel] ?? 3);
+            }
+            if (currentSort === 'date') {
+                return new Date(b.lastStormDate) - new Date(a.lastStormDate);
+            }
+            if (currentSort === 'age') {
+                return b.roofAge - a.roofAge;
+            }
+            return a.address.localeCompare(b.address);
+        });
+
+        renderCards(props);
+        if (leafletMap) addMarkersToMap(props);
+    }
+
+    function renderCards(props) {
+        const list = document.getElementById('cardList');
+
+        if (props.length === 0) {
+            list.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-48 text-slate-500 gap-2">
+                    <i class="fa-solid fa-magnifying-glass text-3xl"></i>
+                    <p class="text-sm">No properties match this filter.</p>
+                </div>`;
+            return;
+        }
+
+        list.innerHTML = props.map((p, idx) => buildCardHtml(p, idx)).join('');
+
+        // Attach scroll-to-map click
+        list.querySelectorAll('.prop-card').forEach((card, idx) => {
+            card.addEventListener('click', () => {
+                if (mapMarkers[idx]) {
+                    leafletMap.setView([props[idx].lat, props[idx].lng], 16, { animate: true });
+                    mapMarkers[idx].openPopup();
+                }
+                highlightCard(idx);
+            });
+        });
+    }
+
+    function buildCardHtml(p, idx) {
+        const riskClass = {
+            High:   'badge-high',
+            Medium: 'badge-medium',
+            Low:    'badge-low'
+        }[p.riskLevel] || 'badge-low';
+
+        const riskIcon = {
+            High:   'fa-circle-exclamation',
+            Medium: 'fa-circle-minus',
+            Low:    'fa-circle-check'
+        }[p.riskLevel] || 'fa-circle';
+
+        return `
+        <div class="prop-card bg-slate-800/70 border border-slate-700/60 rounded-2xl p-4 mb-3 cursor-pointer"
+             data-idx="${idx}">
+            <div class="flex items-start justify-between gap-2 mb-3">
+                <div class="flex-1 min-w-0">
+                    <p class="font-bold text-white text-sm leading-tight truncate">${escapeHtml(p.address)}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">${p.propertyType}</p>
+                </div>
+                <span class="${riskClass} flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+                    <i class="fa-solid ${riskIcon}"></i>${p.riskLevel} Risk
+                </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="bg-slate-900/50 rounded-lg px-3 py-2">
+                    <p class="text-slate-500 mb-0.5">Hail Size</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-cloud-showers-heavy text-brand mr-1"></i>${escapeHtml(p.hailSize)}</p>
+                </div>
+                <div class="bg-slate-900/50 rounded-lg px-3 py-2">
+                    <p class="text-slate-500 mb-0.5">Last Storm</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-calendar-days text-brand mr-1"></i>${escapeHtml(p.lastStormDate)}</p>
+                </div>
+                <div class="bg-slate-900/50 rounded-lg px-3 py-2">
+                    <p class="text-slate-500 mb-0.5">Damage Est.</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-triangle-exclamation text-brand mr-1"></i>${escapeHtml(p.estimatedDamage)}</p>
+                </div>
+                <div class="bg-slate-900/50 rounded-lg px-3 py-2">
+                    <p class="text-slate-500 mb-0.5">Roof Age</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-house text-brand mr-1"></i>${p.roofAge} yrs</p>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function highlightCard(idx) {
+        document.querySelectorAll('.prop-card').forEach(c => c.classList.remove('highlighted'));
+        const card = document.querySelector(`.prop-card[data-idx="${idx}"]`);
+        if (card) {
+            card.classList.add('highlighted');
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    // ─── Filter buttons ───────────────────────────────────────────
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.dataset.filter;
+            applyFilterAndSort();
+        });
+    });
+
+    // ─── Sort select ──────────────────────────────────────────────
+    document.getElementById('sortSelect').addEventListener('change', e => {
+        currentSort = e.target.value;
+        applyFilterAndSort();
+    });
+
+    // ─── Export / Print ───────────────────────────────────────────
+    function exportCSV() {
+        if (!currentAddress) { alert('Run a scan first.'); return; }
+        const radius = document.getElementById('radiusSelect').value;
+        window.location.href = `/RoofHealth/Export?address=${encodeURIComponent(currentAddress)}&radius=${radius}&lat=${currentLat}&lng=${currentLng}`;
+    }
+
+    function printList() {
+        if (!allProperties.length) { alert('Run a scan first.'); return; }
+        const rows = allProperties.map(p =>
+            `<tr>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(p.address)}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;color:${p.riskLevel==='High'?'#dc2626':p.riskLevel==='Medium'?'#ea580c':'#16a34a'};font-weight:600">${p.riskLevel}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.hailSize}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.lastStormDate}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.estimatedDamage}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.roofAge} yrs</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.propertyType}</td>
+            </tr>`
+        ).join('');
+
+        const html = [
+            '<!DOCTYPE html><html><head><title>StormLead Pro - Report</title>',
+            '<style>',
+            'body{font-family:system-ui,sans-serif;padding:24px;color:#0f172a}',
+            'h2{font-size:18px;margin-bottom:8px}',
+            'p{font-size:12px;color:#64748b;margin-bottom:16px}',
+            'table{width:100%;border-collapse:collapse}',
+            'th{text-align:left;padding:8px 10px;background:#0f172a;color:#fff;font-size:12px}',
+            'td{font-size:12px;padding:6px 10px;border-bottom:1px solid #e2e8f0}',
+            '<\/style><\/head><body>',
+            '<h2>StormLead Pro - Neighborhood Report</h2>',
+            '<p>Address: <b>' + escapeHtml(currentAddress) + '</b> | Generated: ' + new Date().toLocaleString() + ' | Total: ' + allProperties.length + '</p>',
+            '<table><thead><tr>',
+            '<th>Address</th><th>Risk</th><th>Hail Size</th><th>Last Storm</th><th>Damage</th><th>Roof Age</th><th>Type</th>',
+            '</tr></thead><tbody>' + rows + '</tbody></table>',
+            '<\/body><\/html>'
+        ].join('');
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const url  = URL.createObjectURL(blob);
+        const win  = window.open(url, '_blank');
+        setTimeout(() => { if (win) { win.print(); URL.revokeObjectURL(url); } }, 800);
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────
+    function riskColor(level) {
+        return level === 'High' ? '#ef4444' : level === 'Medium' ? '#f97316' : '#22c55e';
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function setLoading(on) {
+        document.getElementById('btnText').classList.toggle('hidden', on);
+        document.getElementById('btnSpinner').classList.toggle('hidden', !on);
+        document.getElementById('scanBtn').disabled = on;
+        document.getElementById('scanBtn').style.opacity = on ? '0.7' : '1';
+    }
+
+    function showError(msg) {
+        document.getElementById('errorText').textContent = msg;
+        document.getElementById('errorMsg').classList.remove('hidden');
+    }
+
+    function hideError() {
+        document.getElementById('errorMsg').classList.add('hidden');
+    }
+</script>
 </body>
 </html>
