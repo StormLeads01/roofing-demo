@@ -6,3 +6,4 @@
 /RoofingLeadGeneration/.vs/RoofingLeadGeneration
 /RoofingLeadGeneration/obj
 *.user
+/RoofingLeadGeneration/bin/Release/net8.0
