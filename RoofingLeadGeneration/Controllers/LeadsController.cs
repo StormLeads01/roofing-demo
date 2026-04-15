@@ -30,7 +30,21 @@ namespace RoofingLeadGeneration.Controllers
                 using var conn = new SqliteConnection(ConnStr);
                 conn.Open();
 
-                // Create base table
+                // Create users table first (leads.user_id references it)
+                using var usersCmd = conn.CreateCommand();
+                usersCmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS users (
+                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                        provider     TEXT NOT NULL,
+                        provider_id  TEXT NOT NULL,
+                        email        TEXT,
+                        display_name TEXT,
+                        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                        UNIQUE(provider, provider_id)
+                    );";
+                usersCmd.ExecuteNonQuery();
+
+                // Create leads table
                 using var createCmd = conn.CreateCommand();
                 createCmd.CommandText = @"
                     CREATE TABLE IF NOT EXISTS leads (
@@ -58,7 +72,7 @@ namespace RoofingLeadGeneration.Controllers
                     ("owner_name",  "ALTER TABLE leads ADD COLUMN owner_name  TEXT"),
                     ("owner_phone", "ALTER TABLE leads ADD COLUMN owner_phone TEXT"),
                     ("owner_email", "ALTER TABLE leads ADD COLUMN owner_email TEXT"),
-                    ("user_id",     "ALTER TABLE leads ADD COLUMN user_id     INTEGER REFERENCES users(id)"),
+                    ("user_id",     "ALTER TABLE leads ADD COLUMN user_id     INTEGER"),  // no FK — SQLite doesn't enforce it anyway
                 };
 
                 foreach (var (col, sql) in migrations)
