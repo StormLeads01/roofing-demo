@@ -32,7 +32,33 @@ namespace RoofingLeadGeneration.Controllers
             ViewData["ReturnUrl"]        = returnUrl ?? "/";
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg?["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg?["Auth:Microsoft:ClientId"]);
+            ViewData["PasswordEnabled"]  = !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
             return View();
+        }
+
+        // ── POST /Auth/Login — password login ───────────────────────
+        [HttpPost("Login")]
+        public async Task<IActionResult> LoginPost(string email, string password, string? returnUrl = "/")
+        {
+            var cfg           = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+            var adminEmail    = cfg["Auth:AdminEmail"]    ?? "";
+            var adminPassword = cfg["Auth:AdminPassword"] ?? "";
+
+            if (string.IsNullOrWhiteSpace(adminEmail) ||
+                !string.Equals(email, adminEmail, StringComparison.OrdinalIgnoreCase) ||
+                password != adminPassword)
+            {
+                ViewData["ReturnUrl"]        = returnUrl ?? "/";
+                ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg["Auth:Google:ClientId"]);
+                ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg["Auth:Microsoft:ClientId"]);
+                ViewData["PasswordEnabled"]  = true;
+                ViewData["LoginError"]       = "Invalid email or password.";
+                return View("Login");
+            }
+
+            var userId = await FindOrCreateUserAsync("password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
+            await SignInUserAsync(userId, "password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
+            return LocalRedirect(returnUrl ?? "/");
         }
 
         // ── GET /Auth/SignIn/{provider} ─────────────────────────────

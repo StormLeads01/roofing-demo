@@ -11,13 +11,15 @@ namespace RoofingLeadGeneration.Controllers
     public class RoofHealthController : Controller
     {
         private readonly RealDataService _realData;
+        private readonly string          _apiKey;
 
-        private const string ApiKey        = "AIzaSyB2YmUC-KAbjTUSO4p9NNIaG_3af4iTevM";
         private const string GeocodingBase = "https://maps.googleapis.com/maps/api/geocode/json";
 
-        public RoofHealthController(RealDataService realData)
+        public RoofHealthController(RealDataService realData, IConfiguration config)
         {
             _realData = realData;
+            _apiKey   = config["GoogleMaps:ApiKey"] ?? throw new InvalidOperationException(
+                "GoogleMaps:ApiKey is not configured in appsettings.json");
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -69,17 +71,17 @@ namespace RoofingLeadGeneration.Controllers
         {
             // Single-point test first
             using var singleClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            var singleUrl  = $"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lng}&result_type=street_address&key={ApiKey}";
+            var singleUrl  = $"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lng}&result_type=street_address&key={_apiKey}";
             string singleBody = "";
             try { singleBody = await singleClient.GetStringAsync(singleUrl); }
             catch (Exception ex) { singleBody = ex.Message; }
 
             // Full grid run
-            var gridAddresses = await _realData.GetAddressesViaGoogleGridAsync(lat, lng, radius, ApiKey);
+            var gridAddresses = await _realData.GetAddressesViaGoogleGridAsync(lat, lng, radius, _apiKey);
 
             return Json(new
             {
-                singlePointTest = new { url = singleUrl.Replace(ApiKey, "***"), bodyPreview = singleBody.Length > 300 ? singleBody[..300] : singleBody },
+                singlePointTest = new { url = singleUrl.Replace(_apiKey, "***"), bodyPreview = singleBody.Length > 300 ? singleBody[..300] : singleBody },
                 gridResult = new { count = gridAddresses.Count, sample = gridAddresses.Take(5) }
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         }
@@ -227,7 +229,7 @@ namespace RoofingLeadGeneration.Controllers
             // Fallback: if OSM returned nothing (common in newer suburbs), use Google reverse-geocode grid
             if (osmAddresses.Count == 0)
                 osmAddresses = await _realData.GetAddressesViaGoogleGridAsync(
-                    centerLat, centerLng, radiusMiles, ApiKey);
+                    centerLat, centerLng, radiusMiles, _apiKey);
 
             // Fallback: if SWDI returned nothing, try NOAA Storm Events (ground-truth reports)
             if (hailEvents.Count == 0 && !string.IsNullOrEmpty(stateAbbr))
@@ -329,10 +331,10 @@ namespace RoofingLeadGeneration.Controllers
         // ─────────────────────────────────────────────────────────────────
         // Google Maps geocoding — also extracts state abbreviation for Storm Events fallback
         // ─────────────────────────────────────────────────────────────────
-        private static async Task<GeoResult?> GeocodeAsync(string address)
+        private async Task<GeoResult?> GeocodeAsync(string address)
         {
             using var client = new HttpClient();
-            var url = $"{GeocodingBase}?address={Uri.EscapeDataString(address)}&key={ApiKey}";
+            var url = $"{GeocodingBase}?address={Uri.EscapeDataString(address)}&key={_apiKey}";
             try
             {
                 var json = await client.GetStringAsync(url);
