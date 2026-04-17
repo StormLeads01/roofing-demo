@@ -1,9 +1,21 @@
 ﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+# .gitignore — StormLead Pro
 ################################################################################
 
-/RoofingLeadGeneration/bin/Debug/net8.0
-/RoofingLeadGeneration/.vs/RoofingLeadGeneration
-/RoofingLeadGeneration/obj
+# Build output
+/RoofingLeadGeneration/bin/
+/RoofingLeadGeneration/obj/
+
+# Visual Studio
+/RoofingLeadGeneration/.vs/
 *.user
-/RoofingLeadGeneration/bin/Release/net8.0
+
+# Secrets / local config (never commit real keys)
+/RoofingLeadGeneration/appsettings.Development.json
+
+# SQLite database (runtime artifact)
+/RoofingLeadGeneration/data/
+
+# OS
+.DS_Store
+Thumbs.db

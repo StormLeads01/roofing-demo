@@ -1,0 +1,28 @@
+/* ══════════════════════════════════════════════════════════════
+   StormLead Pro — Admin page styles
+   Loaded only by Views/Admin/Index.cshtml
+══════════════════════════════════════════════════════════════ */
+
+#usersTable th {
+    background: #1e293b;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 10px 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+#usersTable tbody tr {
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    transition: background 0.15s;
+}
+#usersTable tbody tr:hover { background: rgba(249,115,22,0.04); }
+
+#usersTable tbody td {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #cbd5e1;
+    vertical-align: middle;
+}

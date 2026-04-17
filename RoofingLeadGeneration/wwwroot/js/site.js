@@ -81,6 +81,19 @@
         document.getElementById('countMedium').textContent = medium;
         document.getElementById('countLow').textContent    = low;
 
+        // Show NOAA event count badge
+        const noaaBadge = document.getElementById('noaaBadge');
+        if (noaaBadge) {
+            const eventCount = data.hailEventCount || 0;
+            if (eventCount > 0) {
+                noaaBadge.textContent = `NOAA: ${eventCount} hail event${eventCount !== 1 ? 's' : ''} found`;
+                noaaBadge.className = 'summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sm text-sky-300';
+            } else {
+                noaaBadge.textContent = 'NOAA: no events in range — estimates shown';
+                noaaBadge.className = 'summary-badge flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-700 border border-slate-600 text-sm text-slate-400';
+            }
+        }
+
         // Show results section
         document.getElementById('results').classList.remove('hidden');
         document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -167,9 +180,7 @@
                 </div>
                 <div style="font-size:11px;color:#475569;line-height:1.6">
                     <b>Hail:</b> ${p.hailSize}<br>
-                    <b>Storm:</b> ${p.lastStormDate}<br>
-                    <b>Damage:</b> ${p.estimatedDamage}<br>
-                    <b>Roof Age:</b> ${p.roofAge} yrs
+                    <b>Storm:</b> ${p.lastStormDate}
                 </div>
             </div>`;
     }
@@ -192,9 +203,6 @@
             if (currentSort === 'date') {
                 return new Date(b.lastStormDate) - new Date(a.lastStormDate);
             }
-            if (currentSort === 'age') {
-                return b.roofAge - a.roofAge;
-            }
             return a.address.localeCompare(b.address);
         });
 
@@ -209,10 +217,13 @@
         const list = document.getElementById('cardList');
 
         if (props.length === 0) {
+            const noData = allProperties.length === 0;
             list.innerHTML = `
-                <div class="flex flex-col items-center justify-center h-48 text-slate-500 gap-2">
-                    <i class="fa-solid fa-magnifying-glass text-3xl"></i>
-                    <p class="text-sm">No properties match this filter.</p>
+                <div class="flex flex-col items-center justify-center h-48 text-slate-500 gap-3 px-4 text-center">
+                    <i class="fa-solid fa-${noData ? 'map-location-dot' : 'magnifying-glass'} text-3xl"></i>
+                    <p class="text-sm">${noData
+                        ? 'No address data found in OpenStreetMap for this area. Try a different address or a larger radius.'
+                        : 'No properties match this filter.'}</p>
                 </div>`;
             updateSelectionUI();
             return;
@@ -247,6 +258,10 @@
             Low:    'fa-circle-check'
         }[p.riskLevel] || 'fa-circle';
 
+        const sourceBadge = p.dataSource === 'noaa'
+            ? '<span class="source-badge source-badge--noaa">NOAA</span>'
+            : '<span class="source-badge source-badge--est">EST</span>';
+
         return `
         <div class="prop-card bg-slate-800/70 border border-slate-700/60 rounded-2xl p-4 mb-3 cursor-pointer"
              data-idx="${idx}">
@@ -259,7 +274,6 @@
                     <div class="flex items-start justify-between gap-2">
                         <div class="flex-1 min-w-0">
                             <p class="font-bold text-white text-sm leading-tight truncate">${escapeHtml(p.address)}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">${p.propertyType}</p>
                         </div>
                         <span class="${riskClass} flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap">
                             <i class="fa-solid ${riskIcon}"></i>${p.riskLevel} Risk
@@ -274,16 +288,16 @@
                     <p class="text-slate-200 font-semibold"><i class="fa-solid fa-cloud-showers-heavy text-brand mr-1"></i>${escapeHtml(p.hailSize)}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
-                    <p class="text-slate-500 mb-0.5">Last Storm</p>
+                    <p class="text-slate-500 mb-0.5">Last Storm ${sourceBadge}</p>
                     <p class="text-slate-200 font-semibold"><i class="fa-solid fa-calendar-days text-brand mr-1"></i>${escapeHtml(p.lastStormDate)}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
-                    <p class="text-slate-500 mb-0.5">Damage Est.</p>
-                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-triangle-exclamation text-brand mr-1"></i>${escapeHtml(p.estimatedDamage)}</p>
+                    <p class="text-slate-500 mb-0.5">Source</p>
+                    <p class="text-slate-200 font-semibold">${sourceBadge}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
-                    <p class="text-slate-500 mb-0.5">Roof Age</p>
-                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-house text-brand mr-1"></i>${p.roofAge} yrs</p>
+                    <p class="text-slate-500 mb-0.5">Year Built</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-house text-brand mr-1"></i><span class="text-slate-500 italic text-xs">Save to look up</span></p>
                 </div>
             </div>
         </div>`;
@@ -329,9 +343,7 @@
                 <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;color:${p.riskLevel==='High'?'#dc2626':p.riskLevel==='Medium'?'#ea580c':'#16a34a'};font-weight:600">${p.riskLevel}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.hailSize}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.lastStormDate}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.estimatedDamage}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.roofAge} yrs</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.propertyType}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${p.dataSource}</td>
             </tr>`
         ).join('');
 
@@ -348,7 +360,7 @@
             '<h2>StormLead Pro - Neighborhood Report</h2>',
             '<p>Address: <b>' + escapeHtml(currentAddress) + '</b> | Generated: ' + new Date().toLocaleString() + ' | Total: ' + allProperties.length + '</p>',
             '<table><thead><tr>',
-            '<th>Address</th><th>Risk</th><th>Hail Size</th><th>Last Storm</th><th>Damage</th><th>Roof Age</th><th>Type</th>',
+            '<th>Address</th><th>Risk</th><th>Hail Size</th><th>Last Storm</th><th>Data Source</th>',
             '</tr></thead><tbody>' + rows + '</tbody></table>',
             '<\/body><\/html>'
         ].join('');
@@ -435,7 +447,6 @@
         props.sort((a, b) => {
             if (currentSort === 'risk') { const o = {High:0,Medium:1,Low:2}; return (o[a.riskLevel]??3)-(o[b.riskLevel]??3); }
             if (currentSort === 'date') return new Date(b.lastStormDate)-new Date(a.lastStormDate);
-            if (currentSort === 'age')  return b.roofAge-a.roofAge;
             return a.address.localeCompare(b.address);
         });
 
@@ -471,15 +482,25 @@
         }
     }
 
-    // ─── Toast ─────────────────────────────────────────────────────
+
+    // ─── Toast ────────────────────────────────────────────────────
     let _toastTimer = null;
     function showToast(msg, success) {
         const toast = document.getElementById('toast');
         if (_toastTimer) clearTimeout(_toastTimer);
         toast.className = success ? 'success' : 'error';
-        document.getElementById('toastIcon').className = `fa-solid ${success ? 'fa-circle-check' : 'fa-circle-xmark'}`;
+        document.getElementById('toastIcon').className = 'fa-solid ' + (success ? 'fa-circle-check' : 'fa-circle-xmark');
         document.getElementById('toastMsg').textContent = msg;
-        toast.offsetHeight; // reflow
+        toast.offsetHeight; // force reflow
         toast.classList.add('show');
         _toastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
     }
+
+// ── Mobile nav hamburger (shared across pages) ──────────────────
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobileMenu');
+    const icon = document.getElementById('mobileMenuIcon');
+    if (!menu) return;
+    const nowHidden = menu.classList.toggle('hidden');
+    icon.className = nowHidden ? 'fa-solid fa-bars text-lg' : 'fa-solid fa-xmark text-lg';
+}

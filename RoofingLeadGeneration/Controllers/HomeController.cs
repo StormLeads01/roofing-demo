@@ -15,6 +15,15 @@ public class HomeController : Controller
 
     public IActionResult Index()
     {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return RedirectToAction("Landing");
+        return View();
+    }
+
+    public IActionResult Landing()
+    {
+        if (User.Identity?.IsAuthenticated == true)
+            return RedirectToAction("Index");
         return View();
     }
 

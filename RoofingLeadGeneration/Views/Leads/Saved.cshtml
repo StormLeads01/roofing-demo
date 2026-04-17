@@ -36,7 +36,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      HEADER
 ══════════════════════════════════════════════════════════════ -->
-<header class="sticky top-0 z-50 bg-[#0f172a] border-b border-slate-700/60 shadow-lg">
+<header class="sticky top-0 z-50 bg-[#0f172a] border-b border-slate-700/60 shadow-lg relative">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
 
         <a href="/" class="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
@@ -55,6 +55,12 @@
             <a href="/Leads/Saved" class="text-white font-semibold">
                 <i class="fa-solid fa-bookmark mr-1 text-brand text-xs"></i>Saved Leads
             </a>
+            <a href="/Dashboard" class="hover:text-white transition-colors">Dashboard</a>
+            @if ((User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "") == "jaholder78@gmail.com") {
+                <a href="/Admin" class="text-orange-400 hover:text-orange-300 transition-colors text-xs">
+                    <i class="fa-solid fa-shield-halved mr-1"></i>Admin
+                </a>
+            }
             <span class="text-slate-600">|</span>
             @if (User.Identity?.IsAuthenticated == true)
             {
@@ -70,6 +76,41 @@
                 </a>
             }
         </nav>
+
+        <!-- Hamburger (mobile only) -->
+        <button id="mobileMenuBtn" onclick="toggleMobileMenu()"
+            class="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/60 transition-colors">
+            <i id="mobileMenuIcon" class="fa-solid fa-bars text-lg"></i>
+        </button>
+    </div>
+
+    <!-- Mobile nav drawer -->
+    <div id="mobileMenu" class="hidden lg:hidden absolute top-full left-0 right-0 bg-[#0f172a] border-t border-slate-700/60 shadow-2xl z-50 px-4 py-3 flex flex-col gap-1">
+        <a href="/" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
+            <i class="fa-solid fa-magnifying-glass w-4 text-center text-xs"></i>Search
+        </a>
+        <a href="/Leads/Saved" class="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-700/60 text-white font-semibold text-sm">
+            <i class="fa-solid fa-bookmark text-brand w-4 text-center text-xs"></i>Saved Leads
+        </a>
+        <a href="/Dashboard" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
+            <i class="fa-solid fa-chart-bar w-4 text-center text-xs"></i>Dashboard
+        </a>
+        <div class="border-t border-slate-700/60 my-1"></div>
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <div class="flex items-center justify-between px-3 py-2">
+                <span class="text-slate-300 text-sm">
+                    <i class="fa-solid fa-circle-user mr-2 text-brand"></i>@User.Identity.Name
+                </span>
+                <a href="/Auth/Logout" class="text-xs text-slate-500 hover:text-slate-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700/60">Sign out</a>
+            </div>
+        }
+        else
+        {
+            <a href="/Auth/Login" class="flex items-center gap-3 px-3 py-3 rounded-xl bg-brand/10 border border-brand/30 text-brand text-sm font-semibold">
+                <i class="fa-solid fa-right-to-bracket"></i>Sign In
+            </a>
+        }
     </div>
 </header>
 
@@ -87,12 +128,6 @@
             <p class="text-slate-400 text-sm mt-0.5">Manage your pipeline and enrich with homeowner contact info.</p>
         </div>
         <div class="flex items-center gap-2">
-            <button id="enrichBtn" onclick="enrichAll()"
-                class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600
-                       border border-slate-600 text-xs font-semibold text-slate-200 transition shadow"
-                title="Fill in owner names from Regrid (requires free Regrid token in appsettings.json)">
-                <i class="fa-solid fa-wand-magic-sparkles text-brand"></i>Enrich Owners
-            </button>
             <button onclick="exportCSV()"
                 class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600
                        border border-slate-600 text-xs font-semibold text-slate-200 transition shadow">
@@ -129,30 +164,30 @@
 <div id="panelLeads" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
     <!-- Filter / search bar -->
-    <div class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="mb-4 space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
 
-        <!-- Risk filters -->
-        <div class="flex items-center gap-1.5">
+        <!-- Risk filter pills — scroll horizontally on mobile -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5" style="-ms-overflow-style:none;scrollbar-width:none;">
             <button onclick="setFilter('all')" data-f="all"
-                class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
+                class="filter-btn active flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
                 All <span id="fAll" class="ml-1 opacity-60"></span>
             </button>
             <button onclick="setFilter('High')" data-f="High"
-                class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
+                class="filter-btn flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
                 <span class="text-red-400">● High</span> <span id="fHigh" class="ml-1 opacity-60"></span>
             </button>
             <button onclick="setFilter('Medium')" data-f="Medium"
-                class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
+                class="filter-btn flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
                 <span class="text-orange-400">● Medium</span> <span id="fMedium" class="ml-1 opacity-60"></span>
             </button>
             <button onclick="setFilter('Low')" data-f="Low"
-                class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
+                class="filter-btn flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 border border-slate-600">
                 <span class="text-green-400">● Low</span> <span id="fLow" class="ml-1 opacity-60"></span>
             </button>
         </div>
 
-        <!-- Search -->
-        <div class="relative flex-1 min-w-[200px] max-w-sm ml-auto">
+        <!-- Search — full width on mobile -->
+        <div class="relative sm:flex-1 sm:min-w-[200px] sm:max-w-sm sm:ml-auto">
             <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
             <input id="searchInput" type="text" placeholder="Search address, owner…"
                 oninput="renderTable()"
@@ -161,8 +196,11 @@
         </div>
     </div>
 
-    <!-- Table -->
-    <div class="rounded-2xl border border-slate-700/60 shadow-xl bg-slate-800/40 overflow-hidden">
+    <!-- Mobile card list (< md) -->
+    <div id="mobileCards" class="md:hidden space-y-3 mb-4"></div>
+
+    <!-- Desktop table (md+) -->
+    <div class="hidden md:block rounded-2xl border border-slate-700/60 shadow-xl bg-slate-800/40 overflow-hidden">
         <div class="overflow-x-auto">
             <table id="leadsTable" class="w-full border-collapse">
                 <thead>
@@ -173,41 +211,39 @@
                         <th onclick="sortBy('ownerPhone')"       class="text-left hidden sm:table-cell" style="min-width:110px"><span class="sort-icon">Phone</span></th>
                         <th onclick="sortBy('hailSize')"         class="text-left hidden md:table-cell" style="min-width:80px"><span class="sort-icon">Hail</span></th>
                         <th onclick="sortBy('lastStormDate')"    class="text-left hidden md:table-cell" style="min-width:100px"><span class="sort-icon">Storm Date</span></th>
-                        <th onclick="sortBy('estimatedDamage')"  class="text-left hidden lg:table-cell" style="min-width:80px"><span class="sort-icon">Damage</span></th>
-                        <th onclick="sortBy('roofAge')"          class="text-left hidden lg:table-cell" style="min-width:75px"><span class="sort-icon">Roof Age</span></th>
-                        <th onclick="sortBy('propertyType')"     class="text-left hidden lg:table-cell" style="min-width:80px"><span class="sort-icon">Type</span></th>
+                        <th onclick="sortBy('yearBuilt')"        class="text-left hidden lg:table-cell" style="min-width:75px"><span class="sort-icon">Year Built</span></th>
                         <th onclick="sortBy('ownerEmail')"       class="text-left hidden xl:table-cell" style="min-width:150px"><span class="sort-icon">Email</span></th>
-                        <th class="text-center sticky-actions" style="cursor:default">Actions</th>
+                        <th class="text-center sticky-actions" style="cursor:default; min-width:110px">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="leadsBody"></tbody>
             </table>
         </div>
+    </div>
 
-        <!-- Loading -->
-        <div id="leadsLoading" class="flex items-center justify-center py-14 gap-3 text-slate-400 text-sm">
-            <svg class="spinner w-5 h-5" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"
-                        stroke-dasharray="60" stroke-dashoffset="20" />
-            </svg>
-            Loading leads…
-        </div>
+    <!-- Loading state -->
+    <div id="leadsLoading" class="flex items-center justify-center py-14 gap-3 text-slate-400 text-sm">
+        <svg class="spinner w-5 h-5" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"
+                    stroke-dasharray="60" stroke-dashoffset="20" />
+        </svg>
+        Loading leads…
+    </div>
 
-        <!-- Empty -->
-        <div id="leadsEmpty" class="hidden flex flex-col items-center justify-center py-16 text-slate-500 gap-2">
-            <i class="fa-solid fa-bookmark text-4xl text-slate-700 mb-1"></i>
-            <p class="font-semibold text-slate-400">No saved leads yet</p>
-            <p class="text-sm">Go back and scan a neighborhood, then save properties.</p>
-            <a href="/" class="mt-3 px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition">
-                <i class="fa-solid fa-magnifying-glass mr-1"></i>Start a Scan
-            </a>
-        </div>
+    <!-- Empty state -->
+    <div id="leadsEmpty" class="hidden flex flex-col items-center justify-center py-16 text-slate-500 gap-2">
+        <i class="fa-solid fa-bookmark text-4xl text-slate-700 mb-1"></i>
+        <p class="font-semibold text-slate-400">No saved leads yet</p>
+        <p class="text-sm">Go back and scan a neighborhood, then save properties.</p>
+        <a href="/" class="mt-3 px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition">
+            <i class="fa-solid fa-magnifying-glass mr-1"></i>Start a Scan
+        </a>
+    </div>
 
-        <!-- No-match (filter/search) -->
-        <div id="leadsNoMatch" class="hidden flex flex-col items-center justify-center py-14 text-slate-500 gap-2">
-            <i class="fa-solid fa-filter text-3xl text-slate-700"></i>
-            <p class="text-sm">No leads match this filter or search.</p>
-        </div>
+    <!-- No-match (filter/search) -->
+    <div id="leadsNoMatch" class="hidden flex flex-col items-center justify-center py-14 text-slate-500 gap-2">
+        <i class="fa-solid fa-filter text-3xl text-slate-700"></i>
+        <p class="text-sm">No leads match this filter or search.</p>
     </div>
 </div>
 
@@ -426,21 +462,21 @@
                         <div class="flex-shrink-0 w-7 h-7 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand text-xs font-bold">2</div>
                         <div>
                             <p class="text-white text-sm font-semibold">Add background enrichment after a lead is saved</p>
-                            <p class="text-slate-400 text-xs mt-0.5">In <code class="bg-slate-700 px-1 rounded text-brand text-xs">LeadsController.Save()</code>, after inserting, enqueue a background job to call ATTOM or Regrid for the owner name and store it via <code class="bg-slate-700 px-1 rounded text-brand text-xs">PATCH /Leads/{'{id}'}/Owner</code>.</p>
+                            <p class="text-slate-400 text-xs mt-0.5">In <code class="bg-slate-700 px-1 rounded text-brand text-xs">LeadsController.Save()</code>, after inserting, enqueue a background job to call ATTOM or Regrid for the owner name and store it via <code class="bg-slate-700 px-1 rounded text-brand text-xs">PATCH /Leads/{id}/Owner</code>.</p>
                         </div>
                     </li>
                     <li class="flex gap-4">
                         <div class="flex-shrink-0 w-7 h-7 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand text-xs font-bold">3</div>
                         <div>
                             <p class="text-white text-sm font-semibold">Bulk skip-trace from the Saved Leads page</p>
-                            <p class="text-slate-400 text-xs mt-0.5">Add an "Enrich All" button that exports leads without owner info to BatchSkipTracing, then re-imports the results — filling in phone and email columns automatically.</p>
+                            <p class="text-slate-400 text-xs mt-0.5">Add an &ldquo;Enrich All&rdquo; button that exports leads without owner info to BatchSkipTracing, then re-imports the results &mdash; filling in phone and email columns automatically.</p>
                         </div>
                     </li>
                     <li class="flex gap-4">
                         <div class="flex-shrink-0 w-7 h-7 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand text-xs font-bold">4</div>
                         <div>
                             <p class="text-white text-sm font-semibold">Export to CRM</p>
-                            <p class="text-slate-400 text-xs mt-0.5">Use the existing Export CSV button (or a new webhook) to push enriched leads directly into a CRM like HubSpot, JobNimbus, or AccuLynx — the tools roofing contractors actually work from.</p>
+                            <p class="text-slate-400 text-xs mt-0.5">Use the existing Export CSV button (or a new webhook) to push enriched leads directly into a CRM like HubSpot, JobNimbus, or AccuLynx &mdash; the tools roofing contractors actually work from.</p>
                         </div>
                     </li>
                 </ol>
@@ -450,9 +486,6 @@
     </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════════
-     FOOTER
-══════════════════════════════════════════════════════════════ -->
 <footer class="mt-12 border-t border-slate-700/60 bg-slate-900/60">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
         <div class="flex items-center gap-2">
@@ -461,7 +494,7 @@
             </div>
             <span>StormLead Pro &copy; 2026</span>
         </div>
-        <span>Owner data columns are editable — click the pencil icon on any row</span>
+        <span>Owner data columns are editable &mdash; click the pencil icon on any row</span>
     </div>
 </footer>
 

@@ -35,11 +35,13 @@ namespace RoofingLeadGeneration.Services
         {
             double radiusMeters = radiusMiles * 1609.34;
 
-            // Query for nodes and ways that have both a house number and a street
-            var query = $@"[out:json][timeout:25];
+            // Query for any node/way with a house number — street tag is optional
+            // (many US addresses in OSM omit addr:street on the building itself)
+            var query = $@"[out:json][timeout:40];
 (
-  node[""addr:housenumber""][""addr:street""](around:{radiusMeters:F0},{lat},{lng});
-  way[""addr:housenumber""][""addr:street""](around:{radiusMeters:F0},{lat},{lng});
+  node[""addr:housenumber""](around:{radiusMeters:F0},{lat},{lng});
+  way[""addr:housenumber""](around:{radiusMeters:F0},{lat},{lng});
+  relation[""addr:housenumber""](around:{radiusMeters:F0},{lat},{lng});
 );
 out center;";
 
@@ -80,9 +82,8 @@ out center;";
 
             foreach (var el in elements.EnumerateArray())
             {
-                if (!el.TryGetProperty("tags", out var tags))           continue;
+                if (!el.TryGetProperty("tags", out var tags))             continue;
                 if (!tags.TryGetProperty("addr:housenumber", out var hn)) continue;
-                if (!tags.TryGetProperty("addr:street",      out var st)) continue;
 
                 double elLat, elLng;
                 var type = el.GetProperty("type").GetString();
@@ -98,11 +99,17 @@ out center;";
                 }
                 else continue;
 
-                var city  = tags.TryGetProperty("addr:city",     out var c) ? c.GetString() ?? "" : "";
-                var state = tags.TryGetProperty("addr:state",    out var s) ? s.GetString() ?? "" : "";
-                var zip   = tags.TryGetProperty("addr:postcode", out var z) ? z.GetString() ?? "" : "";
+                var street = tags.TryGetProperty("addr:street",   out var st) ? st.GetString() ?? "" : "";
+                var city   = tags.TryGetProperty("addr:city",     out var c)  ? c.GetString()  ?? "" : "";
+                var state  = tags.TryGetProperty("addr:state",    out var s)  ? s.GetString()  ?? "" : "";
+                var zip    = tags.TryGetProperty("addr:postcode", out var z)  ? z.GetString()  ?? "" : "";
 
-                var addr = $"{hn.GetString()} {st.GetString()}";
+                // Skip if we can't form a meaningful address
+                if (string.IsNullOrEmpty(street) && string.IsNullOrEmpty(city)) continue;
+
+                var addr = string.IsNullOrEmpty(street)
+                    ? hn.GetString()!
+                    : $"{hn.GetString()} {street}";
                 if (!string.IsNullOrEmpty(city))  addr += $", {city}";
                 if (!string.IsNullOrEmpty(state)) addr += $", {state}";
                 if (!string.IsNullOrEmpty(zip))   addr += $" {zip}";
@@ -111,7 +118,7 @@ out center;";
                 {
                     FullAddress = addr,
                     HouseNumber = hn.GetString() ?? "",
-                    Street      = st.GetString() ?? "",
+                    Street      = street,
                     City        = city,
                     State       = state,
                     Lat         = elLat,
@@ -234,25 +241,50 @@ out center;";
         //    Add token to appsettings.json: "Regrid": { "Token": "..." }
         //    Docs: https://support.regrid.com/api/using-the-parcel-api-v1
         // ─────────────────────────────────────────────────────────────────
-        public async Task<string?> GetRegridOwnerAsync(double lat, double lng)
+        // Parcel data returned by Regrid — owner name + year the home was built
+        public record RegridParcelData(string? OwnerName, int? YearBuilt);
+
+        public async Task<RegridParcelData?> GetRegridParcelDataAsync(double lat, double lng, string? address = null)
         {
             var token = _config["Regrid:Token"];
             if (string.IsNullOrWhiteSpace(token)) return null;
 
-            // GET /api/v1/parcel.json?lat={lat}&lon={lng}&token={token}&limit=1&radius=200
-            var url = $"https://app.regrid.com/api/v1/parcel.json" +
-                      $"?lat={lat}&lon={lng}&token={token}&limit=1&radius=200";
+            // Regrid v2 API — address search uses "query" param
+            // NOTE: trial sandbox tokens are restricted to 7 counties only
+            string url;
+            if (!string.IsNullOrWhiteSpace(address))
+            {
+                var clean = address
+                    .Replace(", USA", "")
+                    .Replace(", United States", "")
+                    .Trim();
+
+                url = $"https://app.regrid.com/api/v2/parcels/address" +
+                      $"?query={Uri.EscapeDataString(clean)}" +
+                      $"&token={token}&limit=1&return_enhanced_ownership=true";
+            }
+            else
+            {
+                url = $"https://app.regrid.com/api/v2/parcels/point" +
+                      $"?lat={lat}&lon={lng}&token={token}&limit=1&radius=200&return_enhanced_ownership=true";
+            }
             try
             {
                 using var client = _httpFactory.CreateClient("regrid");
                 var resp = await client.GetAsync(url);
                 var json = await resp.Content.ReadAsStringAsync();
 
+                // Log full response for debugging (will trim in production once working)
                 _logger.LogInformation("Regrid {Status} for {Lat},{Lng} — body: {Body}",
-                    resp.StatusCode, lat, lng, json.Length > 500 ? json[..500] : json);
+                    resp.StatusCode, lat, lng, json.Length > 2000 ? json[..2000] : json);
 
                 if (!resp.IsSuccessStatusCode) return null;
-                return ParseRegridOwner(json);
+                try { return ParseRegridParcelData(json); }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Regrid parse failed — raw JSON: {Json}", json);
+                    return null;
+                }
             }
             catch (Exception ex)
             {
@@ -261,19 +293,18 @@ out center;";
             }
         }
 
-        private static string? ParseRegridOwner(string json)
+        private static RegridParcelData? ParseRegridParcelData(string json)
         {
             using var doc = JsonDocument.Parse(json);
-
-            // Try top-level "parcels" wrapper (v1 API)
             var root = doc.RootElement;
-            JsonElement features;
 
+            // Navigate to features array
+            JsonElement features;
             if (root.TryGetProperty("parcels", out var parcels) &&
                 parcels.TryGetProperty("features", out features))
-            { /* found */ }
+            { /* v2 */ }
             else if (root.TryGetProperty("features", out features))
-            { /* root is a FeatureCollection */ }
+            { /* root FeatureCollection */ }
             else return null;
 
             if (features.GetArrayLength() == 0) return null;
@@ -281,27 +312,54 @@ out center;";
             var first = features[0];
             if (!first.TryGetProperty("properties", out var props)) return null;
 
-            // Fields may be nested under "fields" or directly on properties
-            var searchIn = props.TryGetProperty("fields", out var fields)
-                ? new[] { fields, props }
-                : new[] { props };
+            string?  ownerName = null;
+            int?     yearBuilt = null;
 
-            foreach (var obj in searchIn)
+            if (props.TryGetProperty("fields", out var fields) &&
+                fields.ValueKind == JsonValueKind.Object)
             {
-                foreach (var name in new[] { "owner", "owner1", "owner_name", "ownerName",
-                                             "OWNER_NAME", "ownername", "Owner" })
+                // Owner name
+                foreach (var n in new[] { "owner", "owner1", "owner_name", "ownerName", "OWNER_NAME" })
                 {
-                    if (obj.TryGetProperty(name, out var v))
-                    {
-                        var raw = v.GetString();
-                        if (!string.IsNullOrWhiteSpace(raw))
-                            return System.Globalization.CultureInfo.CurrentCulture
-                                         .TextInfo.ToTitleCase(raw.ToLower().Trim());
-                    }
+                    if (fields.TryGetProperty(n, out var v) && v.GetString() is { Length: > 0 } raw)
+                    { ownerName = TitleCase(raw); break; }
+                }
+
+                // Year built — county assessors use many field names
+                foreach (var n in new[] { "yearbuilt", "year_built", "yrbuilt", "yr_built",
+                                          "YearBuilt", "YEARBUILT", "YR_BUILT", "effyearbuilt" })
+                {
+                    if (!fields.TryGetProperty(n, out var v)) continue;
+                    if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var yr) && yr > 1800)
+                    { yearBuilt = yr; break; }
+                    if (v.ValueKind == JsonValueKind.String &&
+                        int.TryParse(v.GetString(), out yr) && yr > 1800)
+                    { yearBuilt = yr; break; }
                 }
             }
-            return null;
+
+            // Fallback: enhanced_ownership for owner name
+            if (ownerName == null &&
+                props.TryGetProperty("enhanced_ownership", out var eoArr) &&
+                eoArr.ValueKind == JsonValueKind.Array &&
+                eoArr.GetArrayLength() > 0)
+            {
+                var eo = eoArr[0];
+                foreach (var n in new[] { "eo_owner", "eo_ownerlast", "owner_name", "owner" })
+                {
+                    if (eo.TryGetProperty(n, out var v) && v.GetString() is { Length: > 0 } raw)
+                    { ownerName = TitleCase(raw); break; }
+                }
+            }
+
+            return ownerName != null || yearBuilt != null
+                ? new RegridParcelData(ownerName, yearBuilt)
+                : null;
         }
+
+        private static string TitleCase(string s) =>
+            System.Globalization.CultureInfo.CurrentCulture
+                  .TextInfo.ToTitleCase(s.ToLower().Trim());
 
         // ─────────────────────────────────────────────────────────────────
         // Haversine distance helper (used by RoofHealthController)
