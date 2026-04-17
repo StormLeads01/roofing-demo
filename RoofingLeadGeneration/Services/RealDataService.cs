@@ -141,37 +141,63 @@ out center;";
         public async Task<List<HailEvent>> GetSwdiHailEventsAsync(
             double lat, double lng, double radiusMiles)
         {
-            // Expand bounding box 50% beyond search radius for better coverage
-            double span  = (radiusMiles * 1.5) / 69.0;
+            // Hail events are scored against properties within 2 miles, so the bbox
+            // must extend at least (radiusMiles + 2) from center. Use a 5-mile minimum.
+            double hailMiles = Math.Max(radiusMiles + 2.0, 5.0);
+            double span  = hailMiles / 69.0;
             double west  = Math.Round(lng - span, 4);
             double east  = Math.Round(lng + span, 4);
             double south = Math.Round(lat - span, 4);
             double north = Math.Round(lat + span, 4);
 
-            // Data is available from ~120 days ago and back (NOAA processing lag)
-            var   end     = DateTime.UtcNow.AddDays(-121);
-            var   start   = end.AddYears(-2);
+            // SWDI max range = 744 hours (~31 days). Split the 2-year window into
+            // 30-day chunks and fetch all in parallel.
+            var end   = DateTime.UtcNow.AddDays(-121);
+            var start = end.AddYears(-2);
 
-            // SWDI max date range = 1 year: split into two queries
-            var midpoint = end.AddDays(-(end - start).Days / 2);
+            var windows = new List<(DateTime from, DateTime to)>();
+            var cursor = start;
+            while (cursor < end)
+            {
+                var next = cursor.AddDays(30);
+                if (next > end) next = end;
+                windows.Add((cursor, next));
+                cursor = next;
+            }
 
+            // Throttle to 4 concurrent requests — NOAA rejects large parallel bursts
             var allEvents = new List<HailEvent>();
-            await FetchSwdiBatch(west, south, east, north, start,    midpoint, allEvents);
-            await FetchSwdiBatch(west, south, east, north, midpoint, end,      allEvents);
+            try
+            {
+                using var semaphore = new System.Threading.SemaphoreSlim(4);
+                var tasks = windows.Select(async w =>
+                {
+                    await semaphore.WaitAsync();
+                    try   { return await FetchSwdiBatch(west, south, east, north, w.from, w.to); }
+                    finally { semaphore.Release(); }
+                });
+                var batches = await Task.WhenAll(tasks);
+                allEvents.AddRange(batches.SelectMany(b => b));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SWDI parallel fetch failed");
+            }
 
-            _logger.LogInformation("SWDI returned {Count} hail events near {Lat},{Lng}",
-                allEvents.Count, lat, lng);
+            _logger.LogInformation("SWDI returned {Count} hail events near {Lat},{Lng} ({Windows} windows)",
+                allEvents.Count, lat, lng, windows.Count);
 
             return allEvents;
         }
 
-        private async Task FetchSwdiBatch(
+        private async Task<List<HailEvent>> FetchSwdiBatch(
             double west, double south, double east, double north,
-            DateTime from, DateTime to, List<HailEvent> results)
+            DateTime from, DateTime to)
         {
-            // URL format: /swdiws/json/{dataset}/{startYYYYMMDD}-{endYYYYMMDD}?bbox=W,S,E,N
+            var results = new List<HailEvent>();
+            // URL format: /swdiws/json/{dataset}/{startYYYYMMDD}:{endYYYYMMDD}?bbox=W,S,E,N
             var url = $"https://www.ncei.noaa.gov/swdiws/json/nx3hail" +
-                      $"/{from:yyyyMMdd}-{to:yyyyMMdd}" +
+                      $"/{from:yyyyMMdd}:{to:yyyyMMdd}" +
                       $"?bbox={west},{south},{east},{north}";
             try
             {
@@ -180,7 +206,7 @@ out center;";
                 if (!resp.IsSuccessStatusCode)
                 {
                     _logger.LogWarning("SWDI returned {Status} for {Url}", resp.StatusCode, url);
-                    return;
+                    return results;
                 }
 
                 var json = await resp.Content.ReadAsStringAsync();
@@ -188,41 +214,59 @@ out center;";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SWDI batch fetch failed");
+                _logger.LogError(ex, "SWDI batch fetch failed for {From:yyyyMMdd}:{To:yyyyMMdd}", from, to);
             }
+            return results;
         }
 
         private static void ParseSwdiJson(string json, List<HailEvent> events)
         {
             using var doc = JsonDocument.Parse(json);
 
-            // SWDI can return { "data": [...] } or just [...]
+            // SWDI response format: { "swdiJsonResponse": {}, "result": [...], "summary": {...} }
+            // Also handle legacy: { "data": [...] } or bare [...]
             JsonElement arr;
             if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                doc.RootElement.TryGetProperty("data", out arr))
-            { /* arr is set */ }
+                doc.RootElement.TryGetProperty("result", out arr))
+            { /* current format */ }
+            else if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                     doc.RootElement.TryGetProperty("data", out arr))
+            { /* legacy format */ }
             else if (doc.RootElement.ValueKind == JsonValueKind.Array)
             { arr = doc.RootElement; }
             else return;
 
             foreach (var item in arr.EnumerateArray())
             {
-                double? hLat  = GetDoubleField(item, "LAT");
-                double? hLng  = GetDoubleField(item, "LON");
-                double? size  = GetDoubleField(item, "MXHAILSIZE");
+                // Coordinates come from SHAPE: "POINT (lon lat)"
+                double? hLat = null, hLng = null;
+                if (item.TryGetProperty("SHAPE", out var shape))
+                {
+                    var s = shape.GetString() ?? "";
+                    // Format: "POINT (lon lat)"
+                    var inner = s.Replace("POINT", "").Trim().Trim('(', ')').Trim();
+                    var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 2 &&
+                        double.TryParse(parts[0], System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var pLng) &&
+                        double.TryParse(parts[1], System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var pLat))
+                    {
+                        hLng = pLng;
+                        hLat = pLat;
+                    }
+                }
 
                 if (hLat is null || hLng is null) continue;
 
-                // Parse YYYYMMDDHHMMSS timestamp
+                // Hail size: MAXSIZE field (inches)
+                double? size = GetDoubleField(item, "MAXSIZE");
+
+                // Timestamp: ZTIME is ISO 8601 e.g. "2025-04-05T08:29:42Z"
                 DateTime date = DateTime.UtcNow.AddYears(-1);
                 if (item.TryGetProperty("ZTIME", out var zt))
-                {
-                    var s = zt.GetString() ?? "";
-                    if (s.Length >= 8)
-                        DateTime.TryParseExact(
-                            s[..8], "yyyyMMdd", null,
-                            System.Globalization.DateTimeStyles.None, out date);
-                }
+                    DateTime.TryParse(zt.GetString(), null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out date);
 
                 events.Add(new HailEvent
                 {
@@ -232,6 +276,233 @@ out center;";
                     Date       = date
                 });
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 1b. Google Maps Reverse-Geocode Grid  –  fallback when OSM returns 0
+        //     Generates a grid of points within the radius, reverse-geocodes each
+        //     via Google Maps, deduplicates, and returns residential addresses.
+        //     Cost: ~$5 / 1000 calls (~$0.25 for a 50-point grid search).
+        // ─────────────────────────────────────────────────────────────────
+        public async Task<List<OsmAddress>> GetAddressesViaGoogleGridAsync(
+            double centerLat, double centerLng, double radiusMiles, string googleApiKey)
+        {
+            var addresses = new List<OsmAddress>();
+            var seen      = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Adaptive grid spacing — target ~50 points regardless of radius
+            double radiusMeters  = radiusMiles * 1609.34;
+            double spacingMeters = Math.Max(radiusMeters / 5.0, 150.0);
+            double latStep = spacingMeters / 111111.0;
+            double lngStep = spacingMeters / (111111.0 * Math.Cos(centerLat * Math.PI / 180.0));
+
+            var points = new List<(double lat, double lng)>();
+            for (double dLat = -radiusMeters / 111111.0; dLat <= radiusMeters / 111111.0; dLat += latStep)
+            for (double dLng = -lngStep * 6;              dLng <= lngStep * 6;              dLng += lngStep)
+            {
+                var pLat = centerLat + dLat;
+                var pLng = centerLng + dLng;
+                if (HaversineDistanceMiles(centerLat, centerLng, pLat, pLng) <= radiusMiles)
+                    points.Add((pLat, pLng));
+            }
+
+            // Throttle to 5 concurrent reverse-geocode calls
+            using var sem = new System.Threading.SemaphoreSlim(5);
+            var tasks = points.Take(50).Select(async pt =>
+            {
+                await sem.WaitAsync();
+                try
+                {
+                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    var url  = $"https://maps.googleapis.com/maps/api/geocode/json" +
+                               $"?latlng={pt.lat},{pt.lng}&result_type=street_address&key={googleApiKey}";
+                    var json = await client.GetStringAsync(url);
+                    return ParseGoogleReverseGeocode(json, pt.lat, pt.lng);
+                }
+                catch { return null; }
+                finally { sem.Release(); }
+            });
+
+            var results = await Task.WhenAll(tasks);
+            foreach (var addr in results)
+            {
+                if (addr == null) continue;
+                if (!seen.Add(addr.FullAddress)) continue;
+                addresses.Add(addr);
+            }
+
+            _logger.LogInformation(
+                "Google grid fallback: {Count} unique addresses from {Points} points",
+                addresses.Count, points.Count);
+
+            return addresses;
+        }
+
+        private static OsmAddress? ParseGoogleReverseGeocode(string json, double fallbackLat, double fallbackLng)
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.GetProperty("status").GetString() != "OK") return null;
+
+            var results = root.GetProperty("results");
+            if (results.GetArrayLength() == 0) return null;
+
+            var first     = results[0];
+            var formatted = first.GetProperty("formatted_address").GetString() ?? "";
+
+            // Only residential — must start with a house number
+            if (!System.Text.RegularExpressions.Regex.IsMatch(formatted, @"^\d+")) return null;
+
+            var loc    = first.GetProperty("geometry").GetProperty("location");
+            var addrLat = loc.GetProperty("lat").GetDouble();
+            var addrLng = loc.GetProperty("lng").GetDouble();
+
+            string num = "", street = "", city = "", state = "", zip = "";
+            foreach (var comp in first.GetProperty("address_components").EnumerateArray())
+            {
+                var types = comp.GetProperty("types").EnumerateArray()
+                                .Select(t => t.GetString()).ToHashSet();
+                var longName  = comp.GetProperty("long_name").GetString()  ?? "";
+                var shortName = comp.GetProperty("short_name").GetString() ?? "";
+
+                if (types.Contains("street_number"))              num    = longName;
+                else if (types.Contains("route"))                 street = longName;
+                else if (types.Contains("locality"))              city   = longName;
+                else if (types.Contains("administrative_area_level_1")) state = shortName;
+                else if (types.Contains("postal_code"))           zip    = longName;
+            }
+
+            return new OsmAddress
+            {
+                FullAddress = formatted,
+                HouseNumber = num,
+                Street      = street,
+                City        = city,
+                State       = state,
+                Lat         = addrLat,
+                Lng         = addrLng
+            };
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 2b. NOAA Storm Events Database  –  fallback hail data
+        //     Ground-truth spotter/insurance reports. No API key needed.
+        //     Covers areas where NEXRAD radar has gaps or sparse coverage.
+        //     Queries by state, then filters by proximity to search coordinates.
+        //     Docs: https://www.ncdc.noaa.gov/stormeventsapi/
+        // ─────────────────────────────────────────────────────────────────
+        public async Task<List<HailEvent>> GetStormEventsHailAsync(
+            double lat, double lng, double radiusMiles, string stateAbbr)
+        {
+            if (string.IsNullOrEmpty(stateAbbr)) return new List<HailEvent>();
+
+            // Go back 5 years — Storm Events has no radar lag, data is ~60 days current
+            var end   = DateTime.UtcNow;
+            var start = end.AddYears(-5);
+
+            var url = "https://www.ncdc.noaa.gov/stormeventsapi/rest/data" +
+                      $"?format=json&eventType=Hail" +
+                      $"&beginDate_mm={start:MM}&beginDate_dd={start:dd}&beginDate_yyyy={start:yyyy}" +
+                      $"&endDate_mm={end:MM}&endDate_dd={end:dd}&endDate_yyyy={end:yyyy}" +
+                      $"&state={Uri.EscapeDataString(stateAbbr)}" +
+                      "&hailSize=0.50&range=50&rangetype=county&limit=500";
+
+            try
+            {
+                using var client = _httpFactory.CreateClient("noaa");
+                var resp = await client.GetAsync(url);
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Storm Events API returned {Status} for state {State}",
+                        resp.StatusCode, stateAbbr);
+                    return new List<HailEvent>();
+                }
+
+                var json = await resp.Content.ReadAsStringAsync();
+                _logger.LogInformation("Storm Events fallback for {State} — {Len} bytes",
+                    stateAbbr, json.Length);
+
+                return ParseStormEventsJson(json, lat, lng, radiusMiles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Storm Events API call failed for state {State}", stateAbbr);
+                return new List<HailEvent>();
+            }
+        }
+
+        private List<HailEvent> ParseStormEventsJson(
+            string json, double centerLat, double centerLng, double radiusMiles)
+        {
+            var results = new List<HailEvent>();
+            // Filter radius: use 3x the search radius to ensure we catch nearby events
+            double filterMiles = Math.Max(radiusMiles * 3, 10);
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                // Response can be { "data": [...] } or just [...]
+                JsonElement arr;
+                if (root.ValueKind == JsonValueKind.Object &&
+                    root.TryGetProperty("data", out arr)) { }
+                else if (root.ValueKind == JsonValueKind.Array)
+                    arr = root;
+                else return results;
+
+                foreach (var item in arr.EnumerateArray())
+                {
+                    // Latitude — try multiple field names
+                    double? evLat = GetDoubleField(item, "BEGIN_LAT")
+                                 ?? GetDoubleField(item, "begin_lat")
+                                 ?? GetDoubleField(item, "LAT");
+                    double? evLng = GetDoubleField(item, "BEGIN_LON")
+                                 ?? GetDoubleField(item, "begin_lon")
+                                 ?? GetDoubleField(item, "LON");
+
+                    if (evLat is null || evLng is null) continue;
+
+                    // Distance filter
+                    if (HaversineDistanceMiles(centerLat, centerLng,
+                            evLat.Value, evLng.Value) > filterMiles) continue;
+
+                    // Hail size — MAGNITUDE field, inches
+                    double? size = GetDoubleField(item, "MAGNITUDE")
+                                ?? GetDoubleField(item, "magnitude")
+                                ?? GetDoubleField(item, "HAIL_SIZE");
+
+                    // Date — BEGIN_DATE_TIME or BEGIN_YEARMONTH
+                    DateTime date = DateTime.UtcNow.AddYears(-1);
+                    foreach (var dateField in new[] { "BEGIN_DATE_TIME", "begin_date_time", "BEGIN_DATE" })
+                    {
+                        if (!item.TryGetProperty(dateField, out var dtEl)) continue;
+                        var s = dtEl.GetString() ?? "";
+                        if (s.Length >= 8 &&
+                            DateTime.TryParse(s, out var parsed))
+                        { date = parsed; break; }
+                    }
+
+                    results.Add(new HailEvent
+                    {
+                        Lat        = evLat.Value,
+                        Lng        = evLng.Value,
+                        SizeInches = size ?? 0.75,
+                        Date       = date
+                    });
+                }
+
+                _logger.LogInformation(
+                    "Storm Events parsed {Count} hail events within {Miles} miles",
+                    results.Count, filterMiles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Storm Events parse failed");
+            }
+
+            return results;
         }
 
         // ─────────────────────────────────────────────────────────────────

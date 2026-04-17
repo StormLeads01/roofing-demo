@@ -21,6 +21,116 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/HailDebug?lat=32.54&lng=-96.86
+        // Returns raw NOAA SWDI response for diagnostic purposes
+        // ─────────────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/RegridDebug?address=312+Meandering+Way,+Glenn+Heights,+TX+75154
+        // Returns raw Regrid API response for diagnostic purposes
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("RegridDebug")]
+        public async Task<IActionResult> RegridDebug(string address = "312 Meandering Way, Glenn Heights, TX 75154")
+        {
+            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+            var token  = config["Regrid:Token"] ?? "";
+
+            if (string.IsNullOrWhiteSpace(token))
+                return Json(new { error = "No Regrid token configured in appsettings.json" });
+
+            var clean = address.Replace(", USA", "").Replace(", United States", "").Trim();
+            var url   = $"https://app.regrid.com/api/v2/parcels/address" +
+                        $"?query={Uri.EscapeDataString(clean)}&token={token}&limit=1&return_enhanced_ownership=true";
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            try
+            {
+                var resp = await client.GetAsync(url);
+                var body = await resp.Content.ReadAsStringAsync();
+                return Json(new
+                {
+                    httpStatus  = (int)resp.StatusCode,
+                    address     = clean,
+                    bodyPreview = body.Length > 1000 ? body[..1000] : body,
+                    totalLength = body.Length
+                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { error = ex.Message });
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/GridDebug?lat=32.54&lng=-96.86&radius=0.5
+        // Tests the Google reverse-geocode grid fallback directly
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("GridDebug")]
+        public async Task<IActionResult> GridDebug(double lat = 32.54, double lng = -96.86, double radius = 0.5)
+        {
+            // Single-point test first
+            using var singleClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var singleUrl  = $"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lng}&result_type=street_address&key={ApiKey}";
+            string singleBody = "";
+            try { singleBody = await singleClient.GetStringAsync(singleUrl); }
+            catch (Exception ex) { singleBody = ex.Message; }
+
+            // Full grid run
+            var gridAddresses = await _realData.GetAddressesViaGoogleGridAsync(lat, lng, radius, ApiKey);
+
+            return Json(new
+            {
+                singlePointTest = new { url = singleUrl.Replace(ApiKey, "***"), bodyPreview = singleBody.Length > 300 ? singleBody[..300] : singleBody },
+                gridResult = new { count = gridAddresses.Count, sample = gridAddresses.Take(5) }
+            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+
+        [HttpGet("HailDebug")]
+        public async Task<IActionResult> HailDebug(double lat = 32.54, double lng = -96.86)
+        {
+            double hailMiles = 5.0;
+            double span      = hailMiles / 69.0;
+            double west      = Math.Round(lng - span, 4);
+            double east      = Math.Round(lng + span, 4);
+            double south     = Math.Round(lat - span, 4);
+            double north     = Math.Round(lat + span, 4);
+
+            // Test two windows: spring 2025 (peak TX hail season) + most recent valid period
+            var recentEnd   = DateTime.UtcNow.AddDays(-121);
+            var recentStart = recentEnd.AddDays(-30);
+            var springStart = new DateTime(2025, 4, 1);
+            var springEnd   = new DateTime(2025, 4, 30);
+            var start = recentStart; // keep for dateRange display
+            var end   = recentEnd;
+
+            var urls = new[]
+            {
+                $"https://www.ncei.noaa.gov/swdiws/json/nx3hail/{springStart:yyyyMMdd}:{springEnd:yyyyMMdd}?bbox={west},{south},{east},{north}",
+                $"https://www.ncei.noaa.gov/swdiws/json/nx3hail/{recentStart:yyyyMMdd}:{recentEnd:yyyyMMdd}?bbox={west},{south},{east},{north}"
+            };
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
+            client.Timeout = TimeSpan.FromSeconds(30);
+
+            var results = new List<object>();
+            foreach (var url in urls)
+            {
+                try
+                {
+                    var resp = await client.GetAsync(url);
+                    var body = await resp.Content.ReadAsStringAsync();
+                    results.Add(new { url, status = (int)resp.StatusCode, bodyPreview = body.Length > 500 ? body[..500] : body, totalLength = body.Length });
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new { url, error = ex.Message });
+                }
+            }
+
+            return Json(new { bbox = new { west, south, east, north }, dateRange = new { start, end }, results });
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // GET /RoofHealth/Neighborhood?address=...&radius=0.5
         // ─────────────────────────────────────────────────────────────────
         [HttpGet("Neighborhood")]
@@ -31,6 +141,7 @@ namespace RoofingLeadGeneration.Controllers
                 return BadRequest(new { error = "Address is required." });
 
             string formattedAddress = address;
+            string stateAbbr        = "";
 
             if (lat == 0 || lng == 0)
             {
@@ -40,9 +151,9 @@ namespace RoofingLeadGeneration.Controllers
                 lat              = center.Lat;
                 lng              = center.Lng;
                 formattedAddress = center.FormattedAddress;
+                stateAbbr        = center.StateAbbr;
             }
-
-            var (properties, hailEventCount) = await GetPropertiesAsync(formattedAddress, lat, lng, radius);
+            var (properties, hailEventCount) = await GetPropertiesAsync(formattedAddress, lat, lng, radius, stateAbbr);
 
             return Json(new { centerAddress = formattedAddress, lat, lng, hailEventCount, osmCount = properties.Count, properties },
                 new JsonSerializerOptions
@@ -62,16 +173,18 @@ namespace RoofingLeadGeneration.Controllers
             if (string.IsNullOrWhiteSpace(address))
                 return BadRequest("Address is required.");
 
+            string exportState = "";
             if (lat == 0 || lng == 0)
             {
                 var center = await GeocodeAsync(address);
                 if (center == null)
                     return BadRequest("Could not geocode the provided address.");
-                lat = center.Lat;
-                lng = center.Lng;
+                lat          = center.Lat;
+                lng          = center.Lng;
+                exportState  = center.StateAbbr;
             }
 
-            var (properties, _) = await GetPropertiesAsync(address, lat, lng, radius);
+            var (properties, _) = await GetPropertiesAsync(address, lat, lng, radius, exportState);
 
             var sb = new StringBuilder();
             sb.AppendLine("Address,Latitude,Longitude,Risk Level,Last Storm Date,Hail Size,Data Source");
@@ -94,14 +207,32 @@ namespace RoofingLeadGeneration.Controllers
         //   Returns whatever OSM finds — no simulated fallback.
         // ─────────────────────────────────────────────────────────────────
         private async Task<(List<PropertyRecord> Records, int HailEventCount)> GetPropertiesAsync(
-            string centerAddress, double centerLat, double centerLng, double radiusMiles)
+            string centerAddress, double centerLat, double centerLng, double radiusMiles,
+            string stateAbbr = "")
         {
+            // Run OSM and NOAA in parallel — NOAA failure must never kill OSM results
             var osmTask  = _realData.GetNearbyAddressesAsync(centerLat, centerLng, radiusMiles);
-            var hailTask = _realData.GetSwdiHailEventsAsync(centerLat, centerLng, radiusMiles);
+            var hailTask = _realData.GetSwdiHailEventsAsync(centerLat, centerLng, radiusMiles)
+                               .ContinueWith(t =>
+                               {
+                                   if (t.IsFaulted)
+                                       return new List<RealDataService.HailEvent>();
+                                   return t.Result;
+                               });
             await Task.WhenAll(osmTask, hailTask);
 
             var osmAddresses = osmTask.Result;
             var hailEvents   = hailTask.Result;
+
+            // Fallback: if OSM returned nothing (common in newer suburbs), use Google reverse-geocode grid
+            if (osmAddresses.Count == 0)
+                osmAddresses = await _realData.GetAddressesViaGoogleGridAsync(
+                    centerLat, centerLng, radiusMiles, ApiKey);
+
+            // Fallback: if SWDI returned nothing, try NOAA Storm Events (ground-truth reports)
+            if (hailEvents.Count == 0 && !string.IsNullOrEmpty(stateAbbr))
+                hailEvents = await _realData.GetStormEventsHailAsync(
+                    centerLat, centerLng, radiusMiles, stateAbbr);
 
             var rng = new Random(centerAddress.GetHashCode());
             var records = osmAddresses
@@ -196,7 +327,7 @@ namespace RoofingLeadGeneration.Controllers
         };
 
         // ─────────────────────────────────────────────────────────────────
-        // Google Maps geocoding (kept as-is from original)
+        // Google Maps geocoding — also extracts state abbreviation for Storm Events fallback
         // ─────────────────────────────────────────────────────────────────
         private static async Task<GeoResult?> GeocodeAsync(string address)
         {
@@ -214,11 +345,26 @@ namespace RoofingLeadGeneration.Controllers
                 var loc       = result.GetProperty("geometry").GetProperty("location");
                 var formatted = result.GetProperty("formatted_address").GetString() ?? address;
 
+                // Extract state abbreviation from address_components
+                string stateAbbr = "";
+                if (result.TryGetProperty("address_components", out var components))
+                {
+                    foreach (var comp in components.EnumerateArray())
+                    {
+                        if (!comp.TryGetProperty("types", out var types)) continue;
+                        bool isState = types.EnumerateArray()
+                            .Any(t => t.GetString() == "administrative_area_level_1");
+                        if (isState && comp.TryGetProperty("short_name", out var sn))
+                        { stateAbbr = sn.GetString() ?? ""; break; }
+                    }
+                }
+
                 return new GeoResult
                 {
                     FormattedAddress = formatted,
-                    Lat = loc.GetProperty("lat").GetDouble(),
-                    Lng = loc.GetProperty("lng").GetDouble()
+                    Lat        = loc.GetProperty("lat").GetDouble(),
+                    Lng        = loc.GetProperty("lng").GetDouble(),
+                    StateAbbr  = stateAbbr
                 };
             }
             catch { return null; }
@@ -231,8 +377,9 @@ namespace RoofingLeadGeneration.Controllers
         private class GeoResult
         {
             public string FormattedAddress { get; set; } = "";
-            public double Lat { get; set; }
-            public double Lng { get; set; }
+            public double Lat        { get; set; }
+            public double Lng        { get; set; }
+            public string StateAbbr  { get; set; } = "";
         }
 
         private class PropertyRecord
