@@ -145,30 +145,32 @@
 <!-- ══════════════════════════════════════════════════════════════
      LEAD TABS  (Needs Enrichment / Enriched)
 ══════════════════════════════════════════════════════════════ -->
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-1">
-    <div class="inline-flex rounded-xl bg-slate-800 border border-slate-700 p-1 gap-1">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-1 overflow-x-auto">
+    <div class="inline-flex min-w-full sm:min-w-0 rounded-xl bg-slate-800 border border-slate-700 p-1 gap-1">
         <button id="tabUnenriched" onclick="switchLeadTab('unenriched')"
-            class="lead-tab lead-tab-active flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+            class="lead-tab lead-tab-active flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-bolt text-orange-400"></i>
-            Needs Enrichment
+            <span class="hidden sm:inline">Needs Enrichment</span>
+            <span class="sm:hidden">Enrich</span>
             <span id="tabUnenrichedCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
         </button>
         <button id="tabPipeline" onclick="switchLeadTab('pipeline')"
-            class="lead-tab flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+            class="lead-tab flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-filter text-sky-400"></i>
             Pipeline
             <span id="tabPipelineCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
         </button>
         <button id="tabClosed" onclick="switchLeadTab('closed')"
-            class="lead-tab flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+            class="lead-tab flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-flag-checkered text-slate-400"></i>
             Closed
             <span id="tabClosedCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
         </button>
         <button id="tabArchived" onclick="switchLeadTab('archived')"
-            class="lead-tab flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all">
+            class="lead-tab flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-box-archive text-slate-400"></i>
-            Archived
+            <span class="hidden sm:inline">Archived</span>
+            <span class="sm:hidden">Archive</span>
             <span id="tabArchivedCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
         </button>
     </div>
@@ -527,15 +529,4 @@
 <footer class="mt-12 border-t border-slate-700/60 bg-slate-900/60">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
         <div class="flex items-center gap-2">
-            <div class="w-5 h-5 bg-brand/80 rounded flex items-center justify-center">
-                <i class="fa-solid fa-house-chimney text-white text-xs"></i>
-            </div>
-            <span>StormLead Pro &copy; 2026</span>
-        </div>
-        <span>Owner data columns are editable &mdash; click the pencil icon on any row</span>
-    </div>
-</footer>
-
-<script src="~/js/saved-leads.js"></script>
-</body>
-</html>
+          
