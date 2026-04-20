@@ -165,4 +165,45 @@ using (var scope = app.Services.CreateScope())
 
     if (!TableExists("lead_contacts"))
     {
-        using var cmd = conn.Create
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE lead_contacts (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id      INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                name         TEXT,
+                phone        TEXT,
+                email        TEXT,
+                contact_type TEXT NOT NULL DEFAULT 'owner',
+                is_primary   INTEGER NOT NULL DEFAULT 0,
+                source       TEXT NOT NULL DEFAULT 'whitepages',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_lead_contacts_lead_id ON lead_contacts(lead_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    conn.Close();
+}
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+    app.UseHsts();
+}
+
+if (app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
+
+app.UseStaticFiles();
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllerRoute(
+    name:    "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();

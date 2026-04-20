@@ -362,4 +362,146 @@ namespace RoofingLeadGeneration.Controllers
                 }
             }
             // ── Step 2b: BatchSkipTracing fallback (if WP not configured) ─
-            else if (!string.IsNullOrWhiteSpa
+            else if (!string.IsNullOrWhiteSpace(bstApiKey))
+            {
+                provider = "batchskiptracing";
+                var contact = await realData.GetBstContactAsync(
+                    bstApiKey, lead.OwnerName, lead.Address);
+
+                if (contact != null)
+                {
+                    if (contact.Phone != null && lead.OwnerPhone == null)
+                        lead.OwnerPhone = contact.Phone;
+                    if (contact.Email != null && lead.OwnerEmail == null)
+                        lead.OwnerEmail = contact.Email;
+
+                    status = "completed";
+                }
+            }
+
+            // Mark as enriched if we got anything useful
+            if (status == "completed")
+                lead.IsEnriched = true;
+
+            _db.Enrichments.Add(new Enrichment
+            {
+                UserId      = CurrentUserId,
+                LeadId      = lead.Id,
+                Address     = lead.Address,
+                Status      = status,
+                Provider    = provider,
+                CreditsUsed = 1,
+                CreatedAt   = DateTime.UtcNow
+            });
+
+            await _db.SaveChangesAsync();
+
+            return new { status, ownerName, yearBuilt, ownerPhone = lead.OwnerPhone, ownerEmail = lead.OwnerEmail };
+        }
+
+        // ── GET /Leads/WpDebug?name=John+Smith&address=123+Main+St,Dallas,TX+75201 ──
+        [HttpGet("WpDebug")]
+        public async Task<IActionResult> WpDebug(string? name, string? address, bool mock = false)
+        {
+            var config   = HttpContext.RequestServices.GetService<IConfiguration>();
+            var realData = HttpContext.RequestServices.GetRequiredService<RealDataService>();
+            var apiKey   = config?["WhitepagesPro:ApiKey"];
+
+            // ?mock=true — parse the sample response without hitting the API
+            if (mock)
+            {
+                const string sampleJson = """
+                {
+                  "result": {
+                    "ownership_info": {
+                      "owner_type": "Business",
+                      "business_owners": [{ "name": "United States Of America" }],
+                      "person_owners": [{
+                        "id": "PX3vr2aM2E3",
+                        "name": "Donald Duck",
+                        "phones": [{ "number": "12015215520", "type": "Landline" }],
+                        "emails": [{ "email": "sample.email@gmail.com" }]
+                      }]
+                    },
+                    "residents": [{
+                      "id": "PX3vr2aM2E3",
+                      "name": "Donald Duck",
+                      "phones": [{ "number": "12015215520", "type": "Landline" }],
+                      "emails": [{ "email": "sample.email@gmail.com" }]
+                    }]
+                  }
+                }
+                """;
+                var parsed = realData.ParseWpResponsePublic(sampleJson);
+                return Json(new { mock = true, contacts = parsed });
+            }
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return Content("WhitepagesPro:ApiKey not configured", "text/plain");
+            if (string.IsNullOrWhiteSpace(address))
+                return Content("Pass ?address=123+Main+St,City,ST+Zip  or  ?mock=true", "text/plain");
+
+            // Parse name + address the same way the service does
+            var cleaned  = address.Replace(", USA","").Replace(", United States","");
+            var parts    = cleaned.Split(',');
+            var street   = parts.Length > 0 ? parts[0].Trim() : cleaned;
+            var city     = parts.Length > 1 ? parts[1].Trim() : "";
+            var stateZip = parts.Length > 2 ? parts[2].Trim().Split(' ') : Array.Empty<string>();
+            var state    = stateZip.Length > 0 ? stateZip[0] : "";
+
+            var qs  = $"street={Uri.EscapeDataString(street)}&city={Uri.EscapeDataString(city)}&state_code={Uri.EscapeDataString(state)}";
+            var url = $"https://api.whitepages.com/v2/property/?{qs}";
+
+            using var http = new System.Net.Http.HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(15);
+            http.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+            var resp = await http.GetAsync(url);
+            var body = await resp.Content.ReadAsStringAsync();
+
+            return Content($"Status: {(int)resp.StatusCode} {resp.StatusCode}\nURL: {url}\n\n{body}", "text/plain");
+        }
+
+        // ── DTOs ─────────────────────────────────────────────────────
+
+        public class SaveRequest
+        {
+            [JsonPropertyName("sourceAddress")] public string?       SourceAddress { get; set; }
+            [JsonPropertyName("properties")]    public PropertyDto[]? Properties   { get; set; }
+        }
+
+        public class PropertyDto
+        {
+            [JsonPropertyName("address")]         public string? Address         { get; set; }
+            [JsonPropertyName("lat")]             public double  Lat             { get; set; }
+            [JsonPropertyName("lng")]             public double  Lng             { get; set; }
+            [JsonPropertyName("riskLevel")]       public string? RiskLevel       { get; set; }
+            [JsonPropertyName("lastStormDate")]   public string? LastStormDate   { get; set; }
+            [JsonPropertyName("hailSize")]        public string? HailSize        { get; set; }
+            [JsonPropertyName("estimatedDamage")] public string? EstimatedDamage { get; set; }
+            [JsonPropertyName("roofAge")]         public int     RoofAge         { get; set; }
+            [JsonPropertyName("propertyType")]    public string? PropertyType    { get; set; }
+        }
+
+        public class OwnerDto
+        {
+            [JsonPropertyName("ownerName")]  public string? OwnerName  { get; set; }
+            [JsonPropertyName("ownerPhone")] public string? OwnerPhone { get; set; }
+            [JsonPropertyName("ownerEmail")] public string? OwnerEmail { get; set; }
+        }
+
+        public class BulkRequest
+        {
+            [JsonPropertyName("ids")] public long[]? Ids { get; set; }
+        }
+
+        public class PatchNotesRequest
+        {
+            [JsonPropertyName("notes")] public string? Notes { get; set; }
+        }
+
+        public class PatchStatusRequest
+        {
+            [JsonPropertyName("status")] public string Status { get; set; } = "new";
+        }
+    }
+}

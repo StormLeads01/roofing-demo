@@ -1026,4 +1026,15 @@ out center;";
                 if (result.TryGetProperty("ownership_info", out var oi) &&
                     oi.TryGetProperty("person_owners", out var owners) &&
                     owners.ValueKind == JsonValueKind.Array)
-                    foreach (var o in owners.Enumera
+                    foreach (var o in owners.EnumerateArray()) ExtractPerson(o, "owner");
+
+                if (result.TryGetProperty("residents", out var residents) &&
+                    residents.ValueKind == JsonValueKind.Array)
+                    foreach (var r in residents.EnumerateArray()) ExtractPerson(r, "resident");
+            }
+            catch { }
+            return results;
+        }
+
+    }
+}
