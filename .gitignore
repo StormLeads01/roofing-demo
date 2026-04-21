@@ -19,6 +19,9 @@
 /RoofingLeadGeneration/data/*.db-shm
 /RoofingLeadGeneration/data/*.db-wal
 
+# Claude internal
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

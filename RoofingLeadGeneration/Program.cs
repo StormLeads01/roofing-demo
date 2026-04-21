@@ -96,6 +96,8 @@ builder.Services.AddHttpClient("tomorrow", c =>
 
 // ── Services ──────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<RealDataService>();
+builder.Services.AddSingleton<EmailService>();
+builder.Services.AddHostedService<StormAlertService>();
 
 // ── Pipeline ──────────────────────────────────────────────────────────────
 var app = builder.Build();
@@ -187,6 +189,47 @@ using (var scope = app.Services.CreateScope())
         """;
         cmd.ExecuteNonQuery();
         cmd.CommandText = "CREATE INDEX ix_lead_contacts_lead_id ON lead_contacts(lead_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("watched_areas"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE watched_areas (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id               INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                label                 TEXT NOT NULL,
+                center_lat            REAL NOT NULL,
+                center_lng            REAL NOT NULL,
+                radius_miles          REAL NOT NULL DEFAULT 10.0,
+                min_hail_size_inches  REAL NOT NULL DEFAULT 1.0,
+                alerts_enabled        INTEGER NOT NULL DEFAULT 1,
+                created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_watched_areas_user_id ON watched_areas(user_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("sent_alerts"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE sent_alerts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                watched_area_id   INTEGER NOT NULL REFERENCES watched_areas(id) ON DELETE CASCADE,
+                event_date        TEXT NOT NULL,
+                hail_size_inches  REAL NOT NULL,
+                sent_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE UNIQUE INDEX ix_sent_alerts_area_date ON sent_alerts(watched_area_id, event_date)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_sent_alerts_user_id ON sent_alerts(user_id)";
         cmd.ExecuteNonQuery();
     }
 

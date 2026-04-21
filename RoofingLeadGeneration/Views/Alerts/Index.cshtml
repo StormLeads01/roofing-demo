@@ -1,0 +1,360 @@
+@{
+    ViewData["Title"] = "Storm Alerts";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Storm Alerts — StormLead Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: {
+                brand: '#f97316',
+                navy:  { DEFAULT: '#0f172a', 700: '#1e293b', 600: '#334155', 500: '#475569' }
+            }}}
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="/css/site.css" />
+</head>
+<body class="bg-navy text-slate-100 min-h-screen">
+
+<!-- ── Nav ─────────────────────────────────────────────────────────────── -->
+<header class="sticky top-0 z-50 bg-navy border-b border-slate-700/60 shadow-lg relative">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow">
+                <i class="fa-solid fa-house-chimney text-white text-sm"></i>
+            </div>
+            <span class="text-lg font-bold tracking-tight">
+                Storm<span class="text-brand">Lead</span> Pro
+            </span>
+        </div>
+        <nav class="hidden lg:flex items-center gap-6 text-sm text-slate-400">
+            <a href="/" class="hover:text-white transition-colors">Search</a>
+            <a href="/Leads/Saved" class="hover:text-white transition-colors">Saved Leads</a>
+            <a href="/Alerts" class="text-white font-semibold transition-colors">Alerts</a>
+            <a href="/Dashboard" class="hover:text-white transition-colors">Dashboard</a>
+            <span class="text-slate-600">|</span>
+            @if (User.Identity?.IsAuthenticated == true) {
+                <span class="text-slate-300 text-xs"><i class="fa-solid fa-circle-user mr-1 text-brand"></i>@User.Identity.Name</span>
+                <a href="/Auth/Logout" class="text-slate-500 hover:text-slate-300 text-xs transition-colors">Sign out</a>
+            } else {
+                <a href="/Auth/Login" class="px-3 py-1 rounded-full bg-brand/10 text-brand border border-brand/30 text-xs font-semibold hover:bg-brand/20 transition-colors">
+                    <i class="fa-solid fa-right-to-bracket mr-1"></i>Sign In
+                </a>
+            }
+        </nav>
+        <button id="mobileMenuBtn" onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/60 transition-colors">
+            <i id="mobileMenuIcon" class="fa-solid fa-bars text-lg"></i>
+        </button>
+    </div>
+    <div id="mobileMenu" class="hidden lg:hidden absolute top-full left-0 right-0 bg-navy border-t border-slate-700/60 shadow-2xl z-50 px-4 py-3 flex flex-col gap-1">
+        <a href="/" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm"><i class="fa-solid fa-magnifying-glass w-4 text-center text-xs"></i>Search</a>
+        <a href="/Leads/Saved" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm"><i class="fa-solid fa-bookmark w-4 text-center text-xs"></i>Saved Leads</a>
+        <a href="/Alerts" class="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-700/60 text-white font-semibold text-sm"><i class="fa-solid fa-bell w-4 text-center text-xs text-brand"></i>Alerts</a>
+        <a href="/Dashboard" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm"><i class="fa-solid fa-chart-bar w-4 text-center text-xs"></i>Dashboard</a>
+    </div>
+</header>
+
+<!-- ── Page ─────────────────────────────────────────────────────────────── -->
+<main class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-white mb-1">
+            <i class="fa-solid fa-bell text-brand mr-2"></i>Storm Alerts
+        </h1>
+        <p class="text-slate-400 text-sm">
+            Add the areas you work and we'll email you within 30 minutes when hail hits.
+            No leads required — the storm is your signal to go find them.
+        </p>
+    </div>
+
+    <!-- Add area form -->
+    <div class="bg-navy-700 border border-slate-700/60 rounded-xl p-5 mb-6">
+        <h2 class="text-sm font-semibold text-slate-300 mb-4">
+            <i class="fa-solid fa-plus text-brand mr-1.5"></i>Watch a new area
+        </h2>
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input id="areaAddress" type="text" placeholder="City, zip code, or address (e.g. Dallas, TX)"
+                class="flex-1 bg-navy border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand transition" />
+            <div class="flex gap-2">
+                <select id="areaRadius" class="bg-navy border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-brand transition">
+                    <option value="5">5 mi</option>
+                    <option value="10" selected>10 mi</option>
+                    <option value="25">25 mi</option>
+                    <option value="50">50 mi</option>
+                </select>
+                <select id="areaMinHail" class="bg-navy border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-brand transition">
+                    <option value="0.75">Penny+ (0.75")</option>
+                    <option value="1.00" selected>Quarter+ (1.00")</option>
+                    <option value="1.25">Half Dollar+ (1.25")</option>
+                    <option value="1.50">Ping Pong+ (1.50")</option>
+                    <option value="1.75">Golf Ball+ (1.75")</option>
+                </select>
+                <button onclick="addArea()" id="addAreaBtn"
+                    class="px-4 py-2.5 rounded-lg bg-brand hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-plus text-xs"></i>
+                    <span>Add Area</span>
+                </button>
+            </div>
+        </div>
+        <p id="addAreaError" class="hidden mt-2 text-xs text-red-400"></p>
+    </div>
+
+    <!-- Watched areas list -->
+    <div class="mb-8">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Your Watch Areas</h2>
+        <div id="areasList">
+            <div class="text-slate-500 text-sm text-center py-8">
+                <i class="fa-solid fa-spinner fa-spin text-slate-600 text-xl mb-3 block"></i>
+                Loading…
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert history -->
+    <div>
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Recent Alerts Sent</h2>
+        <div id="historyList">
+            <div class="text-slate-500 text-sm text-center py-6">
+                <i class="fa-solid fa-spinner fa-spin text-slate-600 text-xl mb-3 block"></i>
+                Loading…
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<!-- ── Toast ─────────────────────────────────────────────────────────────── -->
+<div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-3 rounded-xl text-sm font-medium shadow-xl border transition-all"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let areas   = [];
+let history = [];
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadAreas();
+    loadHistory();
+
+    document.getElementById('areaAddress').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addArea();
+    });
+});
+
+// ── Load watched areas ────────────────────────────────────────────────────
+async function loadAreas() {
+    try {
+        const resp = await fetch('/Alerts/List');
+        areas = await resp.json();
+        renderAreas();
+    } catch (e) {
+        document.getElementById('areasList').innerHTML =
+            '<p class="text-red-400 text-sm">Failed to load watched areas.</p>';
+    }
+}
+
+function renderAreas() {
+    const el = document.getElementById('areasList');
+    if (!areas.length) {
+        el.innerHTML = `
+            <div class="bg-navy-700 border border-dashed border-slate-700 rounded-xl p-8 text-center">
+                <i class="fa-solid fa-map-location-dot text-slate-600 text-3xl mb-3 block"></i>
+                <p class="text-slate-400 text-sm font-medium">No watch areas yet</p>
+                <p class="text-slate-600 text-xs mt-1">Add a city or zip code above to start getting storm alerts.</p>
+            </div>`;
+        return;
+    }
+
+    el.innerHTML = areas.map(a => `
+        <div class="bg-navy-700 border border-slate-700/60 rounded-xl p-4 mb-3 flex flex-col sm:flex-row sm:items-center gap-3" id="area-${a.id}">
+            <div class="flex items-start gap-3 flex-1 min-w-0">
+                <div class="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center ${a.alertsEnabled ? 'bg-brand/15 text-brand' : 'bg-slate-700 text-slate-500'}">
+                    <i class="fa-solid fa-bell text-sm"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-white font-medium text-sm truncate">${escHtml(a.label)}</p>
+                    <p class="text-slate-400 text-xs mt-0.5">
+                        ${a.radiusMiles}-mile radius &nbsp;·&nbsp; ${hailThresholdLabel(a.minHailSizeInches)}+ hail
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <!-- Toggle alerts -->
+                <button onclick="toggleAlert(${a.id}, ${!a.alertsEnabled})" title="${a.alertsEnabled ? 'Pause alerts' : 'Resume alerts'}"
+                    class="h-8 px-3 rounded-lg text-xs font-medium border transition
+                    ${a.alertsEnabled
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                        : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'}">
+                    <i class="fa-solid ${a.alertsEnabled ? 'fa-bell' : 'fa-bell-slash'} mr-1 text-xs"></i>
+                    ${a.alertsEnabled ? 'Active' : 'Paused'}
+                </button>
+                <!-- Search this area now -->
+                <a href="/?address=${encodeURIComponent(a.label)}&radius=${a.radiusMiles}"
+                    title="Search this area now"
+                    class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition">
+                    <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                </a>
+                <!-- Delete -->
+                <button onclick="deleteArea(${a.id})" title="Remove watch area"
+                    class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-slate-600 hover:border-red-500/30 transition">
+                    <i class="fa-solid fa-trash text-xs"></i>
+                </button>
+            </div>
+        </div>`).join('');
+}
+
+// ── Load alert history ────────────────────────────────────────────────────
+async function loadHistory() {
+    try {
+        const resp = await fetch('/Alerts/History');
+        history = await resp.json();
+        renderHistory();
+    } catch (e) {
+        document.getElementById('historyList').innerHTML =
+            '<p class="text-red-400 text-sm">Failed to load history.</p>';
+    }
+}
+
+function renderHistory() {
+    const el = document.getElementById('historyList');
+    if (!history.length) {
+        el.innerHTML = '<p class="text-slate-600 text-sm text-center py-4">No alerts sent yet.</p>';
+        return;
+    }
+    el.innerHTML = `
+        <div class="bg-navy-700 border border-slate-700/60 rounded-xl overflow-hidden">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-700/60 text-left">
+                        <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Area</th>
+                        <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Event Date</th>
+                        <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Hail Size</th>
+                        <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider hidden sm:table-cell">Alert Sent</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${history.map(h => `
+                        <tr class="border-b border-slate-700/40 last:border-0 hover:bg-slate-700/20 transition">
+                            <td class="px-4 py-3 text-slate-200 max-w-[160px] truncate">${escHtml(h.areaLabel)}</td>
+                            <td class="px-4 py-3 text-slate-300">${fmtDate(h.eventDate)}</td>
+                            <td class="px-4 py-3">
+                                <span class="text-orange-400 font-medium">${h.hailSizeInches.toFixed(2)}"</span>
+                                <span class="text-slate-500 text-xs ml-1">(${hailLabel(h.hailSizeInches)})</span>
+                            </td>
+                            <td class="px-4 py-3 text-slate-500 text-xs hidden sm:table-cell">${fmtDate(h.sentAt)}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────
+async function addArea() {
+    const address = document.getElementById('areaAddress').value.trim();
+    const radius  = parseFloat(document.getElementById('areaRadius').value);
+    const minHail = parseFloat(document.getElementById('areaMinHail').value);
+    const errEl   = document.getElementById('addAreaError');
+    const btn     = document.getElementById('addAreaBtn');
+
+    if (!address) { showError(errEl, 'Please enter a city, zip code, or address.'); return; }
+    errEl.classList.add('hidden');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i><span>Adding…</span>';
+
+    try {
+        const resp = await fetch('/Alerts', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ address, radiusMiles: radius, minHailSizeInches: minHail })
+        });
+        const data = await resp.json();
+        if (!resp.ok) { showError(errEl, data.error || 'Failed to add area.'); return; }
+
+        areas.unshift(data);
+        renderAreas();
+        document.getElementById('areaAddress').value = '';
+        showToast('Watch area added — you\'ll be alerted when hail hits ' + data.label, true);
+    } catch (e) {
+        showError(errEl, 'Network error — please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-plus text-xs"></i><span>Add Area</span>';
+    }
+}
+
+async function toggleAlert(id, enabled) {
+    await fetch('/Alerts/' + id, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ alertsEnabled: enabled })
+    });
+    const area = areas.find(a => a.id === id);
+    if (area) area.alertsEnabled = enabled;
+    renderAreas();
+    showToast(enabled ? 'Alerts resumed' : 'Alerts paused', true);
+}
+
+async function deleteArea(id) {
+    if (!confirm('Remove this watch area? You will no longer receive alerts for it.')) return;
+    await fetch('/Alerts/' + id, { method: 'DELETE' });
+    areas = areas.filter(a => a.id !== id);
+    renderAreas();
+    showToast('Watch area removed', true);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function hailThresholdLabel(inches) {
+    if (inches >= 1.75) return '⛳ Golf Ball';
+    if (inches >= 1.50) return '🏓 Ping Pong';
+    if (inches >= 1.25) return '🪙 Half Dollar';
+    if (inches >= 1.00) return '🪙 Quarter';
+    return '🪙 Penny';
+}
+
+function hailLabel(inches) {
+    if (inches >= 4.00) return 'Softball';
+    if (inches >= 2.75) return 'Baseball';
+    if (inches >= 2.50) return 'Tennis Ball';
+    if (inches >= 2.00) return 'Hen Egg';
+    if (inches >= 1.75) return 'Golf Ball';
+    if (inches >= 1.50) return 'Ping Pong';
+    if (inches >= 1.25) return 'Half Dollar';
+    if (inches >= 1.00) return 'Quarter';
+    if (inches >= 0.88) return 'Nickel';
+    if (inches >= 0.75) return 'Penny';
+    return 'Pea';
+}
+
+function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showError(el, msg) {
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+function showToast(msg, ok) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-xl border transition-all '
+        + (ok ? 'bg-emerald-900/80 text-emerald-300 border-emerald-700' : 'bg-red-900/80 text-red-300 border-red-700');
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 3500);
+}
+</script>
+</body>
+</html>

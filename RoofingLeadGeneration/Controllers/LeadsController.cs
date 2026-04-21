@@ -11,9 +11,14 @@ namespace RoofingLeadGeneration.Controllers
     [Route("[controller]")]
     public class LeadsController : Controller
     {
-        private readonly AppDbContext _db;
+        private readonly AppDbContext    _db;
+        private readonly IWebHostEnvironment _env;
 
-        public LeadsController(AppDbContext db) => _db = db;
+        public LeadsController(AppDbContext db, IWebHostEnvironment env)
+        {
+            _db  = db;
+            _env = env;
+        }
 
         private long? CurrentUserId =>
             long.TryParse(User.FindFirst("user_db_id")?.Value, out var id) ? id : null;
@@ -400,9 +405,13 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ── GET /Leads/WpDebug?name=John+Smith&address=123+Main+St,Dallas,TX+75201 ──
+        // Dev-only — blocked in production (non-Development environments)
         [HttpGet("WpDebug")]
         public async Task<IActionResult> WpDebug(string? name, string? address, bool mock = false)
         {
+            if (!_env.IsDevelopment())
+                return NotFound();
+
             var config   = HttpContext.RequestServices.GetService<IConfiguration>();
             var realData = HttpContext.RequestServices.GetRequiredService<RealDataService>();
             var apiKey   = config?["WhitepagesPro:ApiKey"];
