@@ -5,6 +5,8 @@
     var microsoftEnabled = ViewData["MicrosoftEnabled"] is true;
     var passwordEnabled  = ViewData["PasswordEnabled"]  is true;
     var loginError       = ViewData["LoginError"]       as string;
+    var demoEmail        = ViewData["DemoEmail"]        as string;
+    var demoPassword     = ViewData["DemoPassword"]     as string;
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -79,6 +81,14 @@
                         <div class="flex-1 h-px bg-slate-700"></div>
                     </div>
                 }
+                @if (demoEmail != null)
+                {
+                    <a href="/Auth/DemoLogin"
+                       class="flex items-center justify-center gap-2 w-full bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand font-semibold rounded-xl px-4 py-3 text-sm transition mb-1">
+                        <i class="fa-solid fa-play text-xs"></i>
+                        Try the Live Demo
+                    </a>
+                }
                 @if (loginError != null)
                 {
                     <div class="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
@@ -108,18 +118,6 @@
 
         </div>
 
-        @if (System.Diagnostics.Debugger.IsAttached ||
-             string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase))
-        {
-            <div class="mt-6">
-                <div class="divider">dev only</div>
-                <a href="/Auth/DevLogin?returnUrl=@Uri.EscapeDataString(returnUrl)"
-                   class="btn-provider mt-3 border-dashed border-slate-600 text-slate-400 hover:text-slate-200">
-                    <i class="fa-solid fa-code text-orange-500" style="width:20px;text-align:center"></i>
-                    Skip login (Dev Backdoor)
-                </a>
-            </div>
-        }
 
     </div>
 

@@ -233,6 +233,78 @@ using (var scope = app.Services.CreateScope())
         cmd.ExecuteNonQuery();
     }
 
+    // ── Seed demo user + leads ────────────────────────────────────────
+    var demoEmail = config["Auth:DemoEmail"] ?? "james@repwing.com";
+    long demoUserId = 0;
+    {
+        using var cmd = conn.CreateCommand();
+        // Find or create demo user
+        cmd.CommandText = "SELECT id FROM users WHERE provider='demo' AND provider_id='demo-user-1'";
+        var existing = cmd.ExecuteScalar();
+        if (existing == null)
+        {
+            cmd.CommandText = @"INSERT INTO users (provider, provider_id, email, display_name, is_admin, created_at)
+                                VALUES ('demo','demo-user-1',@e,'Demo User',0,datetime('now'))";
+            var p = cmd.CreateParameter(); p.ParameterName = "@e"; p.Value = demoEmail;
+            cmd.Parameters.Add(p);
+            cmd.ExecuteNonQuery();
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            cmd.Parameters.Clear();
+            demoUserId = Convert.ToInt64(cmd.ExecuteScalar());
+        }
+        else
+        {
+            demoUserId = Convert.ToInt64(existing);
+        }
+
+        // Seed demo leads only if none exist yet for this user
+        cmd.CommandText = "SELECT COUNT(*) FROM leads WHERE user_id=@uid";
+        var pUid = cmd.CreateParameter(); pUid.ParameterName = "@uid"; pUid.Value = demoUserId;
+        cmd.Parameters.Add(pUid);
+        var leadCount = Convert.ToInt32(cmd.ExecuteScalar());
+
+        if (leadCount == 0)
+        {
+            var seedLeads = new[]
+            {
+                ("4521 Meadowbrook Dr, Fort Worth, TX 76103",  "High",   "2.00 inch",  "Michael Patterson", "(817) 555-0142", "mpatterson@email.com", 1885, "contacted"),
+                ("935 Magnolia Ave, Fort Worth, TX 76104",     "High",   "2.50 inch",  "Robert Dunham",     "(817) 555-0198", "",                     1972, "new"),
+                ("2817 Wayside Ave, Fort Worth, TX 76111",     "High",   "1.75 inch",  "Sarah Chen",        "(817) 555-0167", "s.chen@webmail.com",   2001, "quoted"),
+                ("7304 Brentwood Stair Rd, Fort Worth, TX 76112","Medium","1.25 inch", "David Okafor",      "",               "",                     1998, "new"),
+                ("6128 Malvey Ave, Fort Worth, TX 76116",      "Medium", "1.00 inch",  "",                  "",               "",                     2014, "new"),
+                ("3429 Hemphill St, Fort Worth, TX 76110",     "Low",    "0.75 inch",  "Linda Nguyen",      "(817) 555-0123", "",                     2008, "new"),
+            };
+
+            foreach (var (addr, risk, hail, owner, phone, email2, yearBuilt, status) in seedLeads)
+            {
+                cmd.Parameters.Clear();
+                cmd.CommandText = @"INSERT INTO leads
+                    (user_id, address, risk_level, hail_size, owner_name, owner_phone, owner_email,
+                     year_built, is_enriched, status, saved_at)
+                    VALUES (@uid,@addr,@risk,@hail,@owner,@phone,@email,@yr,@enriched,@status,datetime('now',@offset))";
+                var ps = new (string, object)[] {
+                    ("@uid",      demoUserId),
+                    ("@addr",     addr),
+                    ("@risk",     risk),
+                    ("@hail",     hail),
+                    ("@owner",    (object)(owner.Length > 0 ? owner : DBNull.Value)),
+                    ("@phone",    (object)(phone.Length  > 0 ? phone : DBNull.Value)),
+                    ("@email",    (object)(email2.Length > 0 ? email2: DBNull.Value)),
+                    ("@yr",       (object)yearBuilt),
+                    ("@enriched", (object)(owner.Length  > 0 ? 1 : 0)),
+                    ("@status",   status),
+                    ("@offset",   $"-{new Random().Next(1,30)} days"),
+                };
+                foreach (var (n, v) in ps)
+                {
+                    var pp = cmd.CreateParameter(); pp.ParameterName = n; pp.Value = v;
+                    cmd.Parameters.Add(pp);
+                }
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
     conn.Close();
 }
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RoofingLeadGeneration.Services;
 using System.Net.Http;
@@ -7,6 +8,7 @@ using System.Text.Json.Serialization;
 
 namespace RoofingLeadGeneration.Controllers
 {
+    [Authorize]
     [Route("[controller]")]
     public class RoofHealthController : Controller
     {

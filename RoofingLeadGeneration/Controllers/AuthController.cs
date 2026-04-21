@@ -29,10 +29,13 @@ namespace RoofingLeadGeneration.Controllers
             if (User.Identity?.IsAuthenticated == true) return Redirect(returnUrl ?? "/");
 
             var cfg = HttpContext.RequestServices.GetService<IConfiguration>();
+            var demoEnabled = string.Equals(cfg?["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
             ViewData["ReturnUrl"]        = returnUrl ?? "/";
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg?["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg?["Auth:Microsoft:ClientId"]);
-            ViewData["PasswordEnabled"]  = !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
+            ViewData["PasswordEnabled"]  = demoEnabled || !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
+            ViewData["DemoEmail"]        = demoEnabled ? cfg?["Auth:DemoEmail"] : null;
+            ViewData["DemoPassword"]     = demoEnabled ? cfg?["Auth:DemoPassword"] : null;
             return View();
         }
 
@@ -41,24 +44,40 @@ namespace RoofingLeadGeneration.Controllers
         public async Task<IActionResult> LoginPost(string email, string password, string? returnUrl = "/")
         {
             var cfg           = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+            var demoEnabled   = string.Equals(cfg["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
+            var demoEmail     = cfg["Auth:DemoEmail"]     ?? "";
+            var demoPassword  = cfg["Auth:DemoPassword"]  ?? "";
             var adminEmail    = cfg["Auth:AdminEmail"]    ?? "";
             var adminPassword = cfg["Auth:AdminPassword"] ?? "";
 
-            if (string.IsNullOrWhiteSpace(adminEmail) ||
-                !string.Equals(email, adminEmail, StringComparison.OrdinalIgnoreCase) ||
-                password != adminPassword)
+            // Check demo credentials
+            if (demoEnabled &&
+                string.Equals(email, demoEmail, StringComparison.OrdinalIgnoreCase) &&
+                password == demoPassword)
             {
-                ViewData["ReturnUrl"]        = returnUrl ?? "/";
-                ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg["Auth:Google:ClientId"]);
-                ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg["Auth:Microsoft:ClientId"]);
-                ViewData["PasswordEnabled"]  = true;
-                ViewData["LoginError"]       = "Invalid email or password.";
-                return View("Login");
+                var userId = await FindOrCreateUserAsync("demo", "demo-user-1", demoEmail, "Demo User");
+                await SignInUserAsync(userId, "demo", "demo-user-1", demoEmail, "Demo User");
+                return LocalRedirect(returnUrl ?? "/");
             }
 
-            var userId = await FindOrCreateUserAsync("password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
-            await SignInUserAsync(userId, "password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
-            return LocalRedirect(returnUrl ?? "/");
+            // Check admin credentials
+            if (!string.IsNullOrWhiteSpace(adminEmail) &&
+                string.Equals(email, adminEmail, StringComparison.OrdinalIgnoreCase) &&
+                password == adminPassword)
+            {
+                var userId = await FindOrCreateUserAsync("password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
+                await SignInUserAsync(userId, "password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
+                return LocalRedirect(returnUrl ?? "/");
+            }
+
+            ViewData["ReturnUrl"]        = returnUrl ?? "/";
+            ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg["Auth:Google:ClientId"]);
+            ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg["Auth:Microsoft:ClientId"]);
+            ViewData["PasswordEnabled"]  = true;
+            ViewData["DemoEmail"]        = demoEnabled ? demoEmail : null;
+            ViewData["DemoPassword"]     = demoEnabled ? demoPassword : null;
+            ViewData["LoginError"]       = "Invalid email or password.";
+            return View("Login");
         }
 
         // ── GET /Auth/SignIn/{provider} ─────────────────────────────
@@ -106,7 +125,7 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ── GET /Auth/DemoLogin ─────────────────────────────────────
-        // Shared read-only demo account — enabled when Auth:DemoEnabled = true in config
+        // One-click demo login — enabled when Auth:DemoEnabled = true in config
         [HttpGet("DemoLogin")]
         public async Task<IActionResult> DemoLogin(string? returnUrl = "/")
         {
@@ -114,8 +133,9 @@ namespace RoofingLeadGeneration.Controllers
             var demoEnabled = string.Equals(cfg?["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
             if (!demoEnabled && !_env.IsDevelopment()) return NotFound();
 
-            var userId = await FindOrCreateUserAsync("demo", "demo-user-1", "demo@stormlead.pro", "Demo User");
-            await SignInUserAsync(userId, "demo", "demo-user-1", "demo@stormlead.pro", "Demo User");
+            var demoEmail = cfg?["Auth:DemoEmail"] ?? "demo@stormlead.pro";
+            var userId = await FindOrCreateUserAsync("demo", "demo-user-1", demoEmail, "Demo User");
+            await SignInUserAsync(userId, "demo", "demo-user-1", demoEmail, "Demo User");
             _logger.LogInformation("Demo account login (id={Id})", userId);
             return LocalRedirect(returnUrl ?? "/");
         }

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
@@ -8,6 +9,7 @@ using System.Text.Json.Serialization;
 
 namespace RoofingLeadGeneration.Controllers
 {
+    [Authorize]
     [Route("[controller]")]
     public class LeadsController : Controller
     {

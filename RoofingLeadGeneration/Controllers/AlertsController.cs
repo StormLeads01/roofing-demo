@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
@@ -7,6 +8,7 @@ using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
 {
+    [Authorize]
     [Route("[controller]")]
     public class AlertsController : Controller
     {

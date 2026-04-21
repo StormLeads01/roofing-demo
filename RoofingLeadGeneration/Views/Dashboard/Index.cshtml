@@ -45,6 +45,9 @@
             <a href="/Alerts" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-bell mr-1 text-xs"></i>Alerts
             </a>
+            <a href="/Help" class="hover:text-white transition-colors">
+                <i class="fa-solid fa-circle-question mr-1 text-xs"></i>Help
+            </a>
             @if (isAdmin) {
                 <a href="/Admin" class="text-orange-400 hover:text-orange-300 transition-colors">
                     <i class="fa-solid fa-shield-halved mr-1 text-xs"></i>Admin
@@ -81,6 +84,9 @@
         </a>
         <a href="/Alerts" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
             <i class="fa-solid fa-bell w-4 text-center text-xs"></i>Alerts
+        </a>
+        <a href="/Help" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
+            <i class="fa-solid fa-circle-question w-4 text-center text-xs"></i>Help
         </a>
         <div class="border-t border-slate-700/60 my-1"></div>
         @if (User.Identity?.IsAuthenticated == true) {
