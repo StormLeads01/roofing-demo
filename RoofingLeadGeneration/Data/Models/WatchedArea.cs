@@ -15,4 +15,6 @@ namespace RoofingLeadGeneration.Data.Models
 
         // Nav
         public User?              User       { get; set; }
-        public List<
+        public List<SentAlert>    SentAlerts { get; set; } = new();
+    }
+}

@@ -65,4 +65,13 @@ namespace RoofingLeadGeneration.Controllers
 
             ViewBag.RecentEnrich = rawEnrich
                 .Select(e => (
-                    Address
+                    Address:   e.Address   ?? "",
+                    Status:    e.Status    ?? "",
+                    CreatedAt: e.CreatedAt.ToString("o")
+                ))
+                .ToList();
+
+            return View();
+        }
+    }
+}

@@ -12,4 +12,6 @@ namespace RoofingLeadGeneration.Data.Models
 
         // Nav
         public User?        User        { get; set; }
-      
+        public WatchedArea? WatchedArea { get; set; }
+    }
+}

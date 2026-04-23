@@ -796,4 +796,8 @@ function showToast(msg, success) {
     if (_toastTimer) clearTimeout(_toastTimer);
     toast.className = success ? 'success' : 'error';
     document.getElementById('toastIcon').className = 'fa-solid ' + (success ? 'fa-circle-check' : 'fa-circle-xmark');
- 
+    document.getElementById('toastMsg').textContent = msg;
+    toast.offsetHeight;
+    toast.classList.add('show');
+    _toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 3500);
+}

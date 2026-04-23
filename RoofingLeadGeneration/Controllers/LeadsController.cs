@@ -536,4 +536,14 @@ namespace RoofingLeadGeneration.Controllers
             [JsonPropertyName("ids")] public long[]? Ids { get; set; }
         }
 
-        public class 
+        public class PatchNotesRequest
+        {
+            [JsonPropertyName("notes")] public string? Notes { get; set; }
+        }
+
+        public class PatchStatusRequest
+        {
+            [JsonPropertyName("status")] public string Status { get; set; } = "new";
+        }
+    }
+}

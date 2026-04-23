@@ -246,4 +246,25 @@
 
 <!-- Footer -->
 <footer class="mt-12 border-t border-slate-700/60 bg-slate-900/60">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between ga
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+        <div class="flex items-center gap-2">
+            <div class="w-5 h-5 bg-brand/80 rounded flex items-center justify-center">
+                <i class="fa-solid fa-house-chimney text-white text-xs"></i>
+            </div>
+            <span>StormLead Pro &copy; 2026</span>
+        </div>
+        <a href="/Leads/Saved" class="text-brand hover:text-orange-300 transition-colors text-xs">View all saved leads &rarr;</a>
+    </div>
+</footer>
+
+<script>
+function toggleMobileMenu() {
+    var menu = document.getElementById('mobileMenu');
+    var icon = document.getElementById('mobileMenuIcon');
+    if (!menu) return;
+    var nowHidden = menu.classList.toggle('hidden');
+    icon.className = nowHidden ? 'fa-solid fa-bars text-lg' : 'fa-solid fa-xmark text-lg';
+}
+</script>
+</body>
+</html>

@@ -152,4 +152,84 @@ namespace RoofingLeadGeneration.Controllers
                         <table style="width:100%;font-size:14px;">
                             <tr><td style="color:#64748b;padding:4px 0;">Watch Area</td><td style="text-align:right;color:#f1f5f9;font-weight:600;">Dallas, TX (10-mile radius)</td></tr>
                             <tr><td style="color:#64748b;padding:4px 0;">Hail Size</td><td style="text-align:right;color:#f97316;font-weight:700;">1.75" ⛳ Golf Ball</td></tr>
-                            <tr><td style="color:#64748b;padding:4px 0
+                            <tr><td style="color:#64748b;padding:4px 0;">Event Date</td><td style="text-align:right;color:#f1f5f9;">{DateTime.UtcNow:MMMM d, yyyy}</td></tr>
+                        </table>
+                    </div>
+                    <a href="https://stormlead.pro/?address=Dallas%2C+TX&radius=10" style="display:inline-block;background:#f97316;color:white;padding:12px 24px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">
+                        🔍 Find Leads in This Area
+                    </a>
+                    <p style="color:#334155;font-size:12px;margin-top:24px;">
+                        You received this because you have a watched area configured in StormLead Pro.<br/>
+                        Sent to: {email}
+                    </p>
+                </div>
+            """;
+
+            var sent = await emailSvc.SendAsync(email, "⚡ [TEST] Storm Alert — Dallas, TX", html);
+
+            if (sent)
+            {
+                _logger.LogInformation("TestEmail: successfully delivered to {Email}", email);
+                return Json(new { ok = true, message = $"Test alert sent to {email}. Check your inbox (and spam folder)." });
+            }
+            else
+            {
+                _logger.LogError("TestEmail: SendAsync returned false for {Email}", email);
+                return StatusCode(500, new { error = "Email send failed. Check the server logs for details." });
+            }
+        }
+
+        // ── GET /Alerts/History — recent sent alerts for this org ────────────
+        [HttpGet("History")]
+        public async Task<IActionResult> History()
+        {
+            var orgId  = CurrentOrgId;
+            var alerts = await _db.SentAlerts
+                .Include(s => s.WatchedArea)
+                .Where(s => s.OrgId == orgId || s.OrgId == null)
+                .OrderByDescending(s => s.SentAt)
+                .Take(50)
+                .Select(s => new {
+                    s.Id, s.EventDate, s.HailSizeInches, s.SentAt,
+                    areaLabel = s.WatchedArea == null ? "" : s.WatchedArea.Label
+                })
+                .ToListAsync();
+
+            return Json(alerts);
+        }
+
+        // ── Geocoding helper ──────────────────────────────────────────────────
+        private static async Task<GeoResult?> GeocodeAsync(string address, string apiKey)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var url  = $"https://maps.googleapis.com/maps/api/geocode/json" +
+                           $"?address={Uri.EscapeDataString(address)}&key={apiKey}";
+                var json = await client.GetStringAsync(url);
+                using var doc  = System.Text.Json.JsonDocument.Parse(json);
+                var       root = doc.RootElement;
+                if (root.GetProperty("status").GetString() != "OK") return null;
+                var result    = root.GetProperty("results")[0];
+                var loc       = result.GetProperty("geometry").GetProperty("location");
+                var formatted = result.GetProperty("formatted_address").GetString() ?? address;
+                return new GeoResult(formatted, loc.GetProperty("lat").GetDouble(), loc.GetProperty("lng").GetDouble());
+            }
+            catch { return null; }
+        }
+
+        // ── DTOs ──────────────────────────────────────────────────────────────
+        private record GeoResult(string FormattedAddress, double Lat, double Lng);
+
+        public record CreateWatchedAreaRequest(
+            string Address,
+            double RadiusMiles       = 10.0,
+            double MinHailSizeInches = 1.0);
+
+        public record UpdateWatchedAreaRequest(
+            double? RadiusMiles,
+            double? MinHailSizeInches,
+            bool?   AlertsEnabled);
+    }
+}

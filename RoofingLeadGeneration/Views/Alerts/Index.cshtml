@@ -343,4 +343,55 @@ function hailLabel(inches) {
 
 function fmtDate(iso) {
     if (!iso) return '—';
-    const d =
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showError(el, msg) {
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+function showToast(msg, ok) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-xl border transition-all '
+        + (ok ? 'bg-emerald-900/80 text-emerald-300 border-emerald-700' : 'bg-red-900/80 text-red-300 border-red-700');
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 3500);
+}
+
+// ── Test email ────────────────────────────────────────────────────────────
+async function sendTestEmail() {
+    const btn  = document.getElementById('testEmailBtn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Sending…';
+    console.log('[StormLead] Sending test alert email…');
+
+    try {
+        const resp = await fetch('/Alerts/TestEmail');
+        const data = await resp.json();
+
+        if (resp.ok) {
+            console.log('[StormLead] Test email sent successfully:', data.message);
+            showToast('✓ ' + data.message, true);
+        } else {
+            console.error('[StormLead] Test email failed:', data.error);
+            showToast('✗ ' + (data.error || 'Failed to send test email'), false);
+        }
+    } catch (e) {
+        console.error('[StormLead] Test email network error:', e);
+        showToast('✗ Network error — check the console', false);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+</script>
+</body>
+</html>

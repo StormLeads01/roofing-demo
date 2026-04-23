@@ -233,4 +233,8 @@ namespace RoofingLeadGeneration.Services
                     </div>
                   </div>
                 </body>
-          
+                </html>
+                """;
+        }
+    }
+}

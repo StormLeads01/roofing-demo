@@ -502,4 +502,7 @@ namespace RoofingLeadGeneration.Controllers
             /// <summary>Days since most recent nearby hail event. Null = no data.</summary>
             [JsonPropertyName("claimWindowDays")]  public int?   ClaimWindowDays  { get; set; }
             /// <summary>"hot" (0-365), "fileable" (366-730), "expired" (>730), or "" (no data)</summary>
-            [JsonPropertyName("claimWindowTier")]  public stri
+            [JsonPropertyName("claimWindowTier")]  public string ClaimWindowTier  { get; set; } = "";
+        }
+    }
+}

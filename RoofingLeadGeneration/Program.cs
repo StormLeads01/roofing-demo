@@ -229,4 +229,230 @@ using (var scope = app.Services.CreateScope())
                 status        TEXT NOT NULL DEFAULT 'pending',
                 provider      TEXT NOT NULL DEFAULT 'batchskiptracing',
                 credits_used  INTEGER NOT NULL DEFAULT 1,
-               
+                created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+
+        cmd.CommandText = "CREATE INDEX ix_enrichments_user_id    ON enrichments(user_id)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_enrichments_created_at ON enrichments(created_at)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("lead_contacts"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE lead_contacts (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id      INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                name         TEXT,
+                phone        TEXT,
+                email        TEXT,
+                contact_type TEXT NOT NULL DEFAULT 'owner',
+                is_primary   INTEGER NOT NULL DEFAULT 0,
+                source       TEXT NOT NULL DEFAULT 'whitepages',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_lead_contacts_lead_id ON lead_contacts(lead_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("watched_areas"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE watched_areas (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id               INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                label                 TEXT NOT NULL,
+                center_lat            REAL NOT NULL,
+                center_lng            REAL NOT NULL,
+                radius_miles          REAL NOT NULL DEFAULT 10.0,
+                min_hail_size_inches  REAL NOT NULL DEFAULT 1.0,
+                alerts_enabled        INTEGER NOT NULL DEFAULT 1,
+                created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_watched_areas_user_id ON watched_areas(user_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("sent_alerts"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE sent_alerts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                watched_area_id   INTEGER NOT NULL REFERENCES watched_areas(id) ON DELETE CASCADE,
+                event_date        TEXT NOT NULL,
+                hail_size_inches  REAL NOT NULL,
+                sent_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE UNIQUE INDEX ix_sent_alerts_area_date ON sent_alerts(watched_area_id, event_date)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_sent_alerts_user_id ON sent_alerts(user_id)";
+        cmd.ExecuteNonQuery();
+    }
+
+    // ── Seed demo user + leads ────────────────────────────────────────
+    var demoEmail = config["Auth:DemoEmail"] ?? "james@repwing.com";
+    long demoUserId = 0;
+    {
+        using var cmd = conn.CreateCommand();
+        // Find or create demo user
+        cmd.CommandText = "SELECT id FROM users WHERE provider='demo' AND provider_id='demo-user-1'";
+        var existing = cmd.ExecuteScalar();
+        if (existing == null)
+        {
+            cmd.CommandText = @"INSERT INTO users (provider, provider_id, email, display_name, is_admin, created_at)
+                                VALUES ('demo','demo-user-1',@e,'Demo User',0,datetime('now'))";
+            var p = cmd.CreateParameter(); p.ParameterName = "@e"; p.Value = demoEmail;
+            cmd.Parameters.Add(p);
+            cmd.ExecuteNonQuery();
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            cmd.Parameters.Clear();
+            demoUserId = Convert.ToInt64(cmd.ExecuteScalar());
+        }
+        else
+        {
+            demoUserId = Convert.ToInt64(existing);
+        }
+
+        // ── Ensure demo user has an org ───────────────────────────────────
+        cmd.Parameters.Clear();
+        cmd.CommandText = "SELECT org_id FROM users WHERE id=@uid";
+        var pOrgCheck = cmd.CreateParameter(); pOrgCheck.ParameterName = "@uid"; pOrgCheck.Value = demoUserId;
+        cmd.Parameters.Add(pOrgCheck);
+        var existingOrgId = cmd.ExecuteScalar();
+
+        long demoOrgId = 0;
+        if (existingOrgId == null || existingOrgId == DBNull.Value)
+        {
+            // Create demo org
+            cmd.Parameters.Clear();
+            cmd.CommandText = @"INSERT INTO orgs (name, owner_id, plan, created_at)
+                                VALUES ('Demo Company', @uid, 'agency', datetime('now'))";
+            var pOwner = cmd.CreateParameter(); pOwner.ParameterName = "@uid"; pOwner.Value = demoUserId;
+            cmd.Parameters.Add(pOwner);
+            cmd.ExecuteNonQuery();
+
+            cmd.Parameters.Clear();
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            demoOrgId = Convert.ToInt64(cmd.ExecuteScalar());
+
+            // Assign demo user to org as owner
+            cmd.CommandText = "UPDATE users SET org_id=@oid, org_role='owner' WHERE id=@uid";
+            var pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
+            var pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
+            cmd.Parameters.Add(pOid);
+            cmd.Parameters.Add(pUid2);
+            cmd.ExecuteNonQuery();
+
+            // Migrate existing leads / watched_areas / sent_alerts to the demo org
+            cmd.Parameters.Clear();
+            cmd.CommandText = "UPDATE leads SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
+            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
+            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
+            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
+            cmd.ExecuteNonQuery();
+
+            cmd.Parameters.Clear();
+            cmd.CommandText = "UPDATE watched_areas SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
+            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
+            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
+            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
+            cmd.ExecuteNonQuery();
+
+            cmd.Parameters.Clear();
+            cmd.CommandText = "UPDATE sent_alerts SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
+            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
+            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
+            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
+            cmd.ExecuteNonQuery();
+        }
+        else
+        {
+            demoOrgId = Convert.ToInt64(existingOrgId);
+        }
+
+        // Seed demo leads only if none exist yet for this user
+        cmd.Parameters.Clear();
+        cmd.CommandText = "SELECT COUNT(*) FROM leads WHERE user_id=@uid";
+        var pUid = cmd.CreateParameter(); pUid.ParameterName = "@uid"; pUid.Value = demoUserId;
+        cmd.Parameters.Add(pUid);
+        var leadCount = Convert.ToInt32(cmd.ExecuteScalar());
+
+        if (leadCount == 0)
+        {
+            var seedLeads = new[]
+            {
+                ("4521 Meadowbrook Dr, Fort Worth, TX 76103",  "High",   "2.00 inch",  "Michael Patterson", "(817) 555-0142", "mpatterson@email.com", 1885, "contacted"),
+                ("935 Magnolia Ave, Fort Worth, TX 76104",     "High",   "2.50 inch",  "Robert Dunham",     "(817) 555-0198", "",                     1972, "new"),
+                ("2817 Wayside Ave, Fort Worth, TX 76111",     "High",   "1.75 inch",  "Sarah Chen",        "(817) 555-0167", "s.chen@webmail.com",   2001, "quoted"),
+                ("7304 Brentwood Stair Rd, Fort Worth, TX 76112","Medium","1.25 inch", "David Okafor",      "",               "",                     1998, "new"),
+                ("6128 Malvey Ave, Fort Worth, TX 76116",      "Medium", "1.00 inch",  "",                  "",               "",                     2014, "new"),
+                ("3429 Hemphill St, Fort Worth, TX 76110",     "Low",    "0.75 inch",  "Linda Nguyen",      "(817) 555-0123", "",                     2008, "new"),
+            };
+
+            foreach (var (addr, risk, hail, owner, phone, email2, yearBuilt, status) in seedLeads)
+            {
+                cmd.Parameters.Clear();
+                cmd.CommandText = @"INSERT INTO leads
+                    (user_id, org_id, address, risk_level, hail_size, owner_name, owner_phone, owner_email,
+                     year_built, is_enriched, status, saved_at)
+                    VALUES (@uid,@oid,@addr,@risk,@hail,@owner,@phone,@email,@yr,@enriched,@status,datetime('now',@offset))";
+                var ps = new (string, object)[] {
+                    ("@uid",      demoUserId),
+                    ("@oid",      demoOrgId),
+                    ("@addr",     addr),
+                    ("@risk",     risk),
+                    ("@hail",     hail),
+                    ("@owner",    (object)(owner.Length > 0 ? owner : DBNull.Value)),
+                    ("@phone",    (object)(phone.Length  > 0 ? phone : DBNull.Value)),
+                    ("@email",    (object)(email2.Length > 0 ? email2: DBNull.Value)),
+                    ("@yr",       (object)yearBuilt),
+                    ("@enriched", (object)(owner.Length  > 0 ? 1 : 0)),
+                    ("@status",   status),
+                    ("@offset",   $"-{new Random().Next(1,30)} days"),
+                };
+                foreach (var (n, v) in ps)
+                {
+                    var pp = cmd.CreateParameter(); pp.ParameterName = n; pp.Value = v;
+                    cmd.Parameters.Add(pp);
+                }
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    conn.Close();
+}
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+    app.UseHsts();
+}
+
+if (app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
+
+app.UseStaticFiles();
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllerRoute(
+    name:    "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();

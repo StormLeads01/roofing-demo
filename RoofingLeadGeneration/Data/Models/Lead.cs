@@ -28,4 +28,7 @@ namespace RoofingLeadGeneration.Data.Models
         public string    Status          { get; set; } = "new";
 
         public User?                     User        { get; set; }
-        public ICollection<Enrichment>   Enrichments { get; set; } = new 
+        public ICollection<Enrichment>   Enrichments { get; set; } = new List<Enrichment>();
+        public ICollection<LeadContact>  Contacts    { get; set; } = new List<LeadContact>();
+    }
+}

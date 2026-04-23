@@ -416,4 +416,14 @@ namespace RoofingLeadGeneration.Controllers
                 new ClaimsPrincipal(identity), props);
         }
 
-        // ── DTOs ───────────────────────
+        // ── DTOs ─────────────────────────────────────────────────────
+        public record InviteRequest(
+            [property: JsonPropertyName("email")] string Email,
+            [property: JsonPropertyName("role")]  string Role = "rep");
+
+        public class UpdateRoleRequest
+        {
+            [JsonPropertyName("role")] public string Role { get; set; } = "rep";
+        }
+    }
+}

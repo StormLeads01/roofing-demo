@@ -164,4 +164,91 @@ namespace RoofingLeadGeneration.Controllers
             if (user != null)
             {
                 // Backfill org for any existing user who doesn't have one yet
-                if 
+                if (user.OrgId == null)
+                {
+                    var org = new Data.Models.Org
+                    {
+                        Name      = string.IsNullOrWhiteSpace(user.DisplayName) ? "My Company" : $"{user.DisplayName}'s Company",
+                        OwnerId   = user.Id,
+                        Plan      = "free",
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.Orgs.Add(org);
+                    await _db.SaveChangesAsync();
+
+                    user.OrgId   = org.Id;
+                    user.OrgRole = "owner";
+                    await _db.SaveChangesAsync();
+
+                    // Migrate orphaned data to this org
+                    await _db.Leads.Where(l => l.UserId == user.Id && l.OrgId == null)
+                        .ExecuteUpdateAsync(s => s.SetProperty(l => l.OrgId, org.Id));
+                    await _db.WatchedAreas.Where(w => w.UserId == user.Id && w.OrgId == null)
+                        .ExecuteUpdateAsync(s => s.SetProperty(w => w.OrgId, org.Id));
+                    await _db.SentAlerts.Where(a => a.UserId == user.Id && a.OrgId == null)
+                        .ExecuteUpdateAsync(s => s.SetProperty(a => a.OrgId, org.Id));
+                }
+                return user.Id;
+            }
+
+            // Brand-new user — create user + org in one shot
+            var newOrg = new Data.Models.Org
+            {
+                Name      = string.IsNullOrWhiteSpace(name) ? "My Company" : $"{name}'s Company",
+                Plan      = "free",
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Orgs.Add(newOrg);
+            await _db.SaveChangesAsync(); // get org.Id first
+
+            var newUser = new Data.Models.User
+            {
+                Provider    = provider,
+                ProviderId  = providerId,
+                Email       = email,
+                DisplayName = name,
+                OrgId       = newOrg.Id,
+                OrgRole     = "owner",
+                CreatedAt   = DateTime.UtcNow
+            };
+            _db.Users.Add(newUser);
+            await _db.SaveChangesAsync();
+
+            // Set the owner back-reference
+            newOrg.OwnerId = newUser.Id;
+            await _db.SaveChangesAsync();
+
+            return newUser.Id;
+        }
+
+        private async Task SignInUserAsync(
+            long userId, string provider, string providerId, string email, string name)
+        {
+            var user = await _db.Users.FindAsync(userId);
+            var orgId   = user?.OrgId?.ToString()  ?? "";
+            var orgRole = user?.OrgRole             ?? "owner";
+
+            var claims = new List<Claim>
+            {
+                new(ClaimTypes.NameIdentifier, providerId),
+                new(ClaimTypes.Name,           name),
+                new(ClaimTypes.Email,          email),
+                new("provider",                provider),
+                new("user_db_id",              userId.ToString()),
+                new("user_org_id",             orgId),
+                new("user_org_role",           orgRole)
+            };
+
+            var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var props     = new AuthenticationProperties
+            {
+                IsPersistent = true,
+                ExpiresUtc   = DateTimeOffset.UtcNow.AddDays(30)
+            };
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(identity), props);
+        }
+    }
+}

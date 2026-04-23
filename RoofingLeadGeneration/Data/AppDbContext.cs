@@ -173,4 +173,63 @@ namespace RoofingLeadGeneration.Data
                  .OnDelete(DeleteBehavior.SetNull);
 
                 e.HasOne(en => en.Lead)
-      
+                 .WithMany(l => l.Enrichments)
+                 .HasForeignKey(en => en.LeadId)
+                 .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // ── WatchedArea ──────────────────────────────────────────────
+            m.Entity<WatchedArea>(e =>
+            {
+                e.ToTable("watched_areas");
+                e.HasKey(w => w.Id);
+                e.Property(w => w.Id).HasColumnName("id");
+                e.Property(w => w.UserId).HasColumnName("user_id");
+                e.Property(w => w.OrgId).HasColumnName("org_id");
+                e.Property(w => w.Label).HasColumnName("label").IsRequired();
+                e.Property(w => w.CenterLat).HasColumnName("center_lat");
+                e.Property(w => w.CenterLng).HasColumnName("center_lng");
+                e.Property(w => w.RadiusMiles).HasColumnName("radius_miles").HasDefaultValue(10.0);
+                e.Property(w => w.MinHailSizeInches).HasColumnName("min_hail_size_inches").HasDefaultValue(1.0);
+                e.Property(w => w.AlertsEnabled).HasColumnName("alerts_enabled").HasDefaultValue(true);
+                e.Property(w => w.CreatedAt).HasColumnName("created_at")
+                 .HasDefaultValueSql("datetime('now')");
+
+                e.HasIndex(w => w.UserId);
+
+                e.HasOne(w => w.User)
+                 .WithMany(u => u.WatchedAreas)
+                 .HasForeignKey(w => w.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── SentAlert ────────────────────────────────────────────────
+            m.Entity<SentAlert>(e =>
+            {
+                e.ToTable("sent_alerts");
+                e.HasKey(s => s.Id);
+                e.Property(s => s.Id).HasColumnName("id");
+                e.Property(s => s.UserId).HasColumnName("user_id");
+                e.Property(s => s.OrgId).HasColumnName("org_id");
+                e.Property(s => s.WatchedAreaId).HasColumnName("watched_area_id");
+                e.Property(s => s.EventDate).HasColumnName("event_date");
+                e.Property(s => s.HailSizeInches).HasColumnName("hail_size_inches");
+                e.Property(s => s.SentAt).HasColumnName("sent_at")
+                 .HasDefaultValueSql("datetime('now')");
+
+                e.HasIndex(s => new { s.WatchedAreaId, s.EventDate }).IsUnique();
+                e.HasIndex(s => s.UserId);
+
+                e.HasOne(s => s.User)
+                 .WithMany(u => u.SentAlerts)
+                 .HasForeignKey(s => s.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(s => s.WatchedArea)
+                 .WithMany(w => w.SentAlerts)
+                 .HasForeignKey(s => s.WatchedAreaId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+        }
+    }
+}

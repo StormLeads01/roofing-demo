@@ -173,4 +173,10 @@ function buildClaimBadge(stormDateStr, address) {
     else if (cw.warning) { cls = 'claim-warning'; icon = 'fa-triangle-exclamation'; }
     else                 { cls = 'claim-healthy'; icon = 'fa-clock'; }
 
-    va
+    var label = cw.daysLeft >= 365
+        ? Math.round(cw.daysLeft / 30.4) + ' mo left'
+        : cw.daysLeft + 'd left';
+
+    return '<span class="claim-badge ' + cls + '" title="' + _cwEscape(tooltip) + '">' +
+           '<i class="fa-solid ' + icon + ' mr-0.5"></i>' + label + '</span>';
+}
