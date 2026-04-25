@@ -13,13 +13,15 @@ namespace RoofingLeadGeneration.Controllers
     [Route("[controller]")]
     public class LeadsController : Controller
     {
-        private readonly AppDbContext    _db;
+        private readonly AppDbContext        _db;
         private readonly IWebHostEnvironment _env;
+        private readonly HailReportService   _reports;
 
-        public LeadsController(AppDbContext db, IWebHostEnvironment env)
+        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports)
         {
-            _db  = db;
-            _env = env;
+            _db      = db;
+            _env     = env;
+            _reports = reports;
         }
 
         private long? CurrentUserId =>
@@ -27,6 +29,11 @@ namespace RoofingLeadGeneration.Controllers
 
         private long? CurrentOrgId =>
             long.TryParse(User.FindFirst("user_org_id")?.Value, out var id) ? id : null;
+
+        private string CurrentOrgRole =>
+            User.FindFirst("user_org_role")?.Value ?? "rep";
+
+        private bool CanEnrich => CurrentOrgRole is "owner" or "manager";
 
         // ── GET /Leads/Saved → HTML page ────────────────────────────
         [HttpGet("Saved")]
@@ -159,20 +166,58 @@ namespace RoofingLeadGeneration.Controllers
         [HttpPost("{id:long}/Enrich")]
         public async Task<IActionResult> Enrich(long id)
         {
+            if (!CanEnrich)
+                return StatusCode(403, new { error = "Reps cannot run enrichment. Ask an owner or manager." });
+
+            var orgId = CurrentOrgId;
+            var credit = orgId.HasValue
+                ? await _db.OrgCredits.FirstOrDefaultAsync(c => c.OrgId == orgId && c.CreditType == "enrichment")
+                : null;
+            if (credit != null && credit.Balance <= 0)
+                return StatusCode(402, new { error = "No enrichment credits remaining. Top up your plan to continue." });
+
             var lead = await _db.Leads.FindAsync(id);
             if (lead == null) return NotFound(new { error = "Lead not found." });
 
-            return Json(await EnrichLeadAsync(lead));
+            return Json(await EnrichLeadAsync(lead, credit));
+        }
+
+        // ── GET /Leads/{id}/Report — download hail damage PDF ────────
+        [HttpGet("{id:long}/Report")]
+        public async Task<IActionResult> Report(long id)
+        {
+            var orgId = CurrentOrgId;
+            var lead  = await _db.Leads
+                .FirstOrDefaultAsync(l => l.Id == id &&
+                    (l.OrgId == orgId || l.OrgId == null) &&
+                    l.DeletedAt == null);
+
+            if (lead == null) return NotFound();
+
+            var generatedBy = User.Identity?.Name ?? "StormLead Pro User";
+            var pdf         = _reports.Generate(lead, generatedBy);
+
+            var filename = $"HailReport-{lead.Id}-{DateTime.Now:yyyyMMdd}.pdf";
+            return File(pdf, "application/pdf", filename);
         }
 
         // ── POST /Leads/BulkEnrich ───────────────────────────────────
         [HttpPost("BulkEnrich")]
         public async Task<IActionResult> BulkEnrich([FromBody] BulkRequest req)
         {
+            if (!CanEnrich)
+                return StatusCode(403, new { error = "Reps cannot run enrichment. Ask an owner or manager." });
+
             if (req?.Ids == null || req.Ids.Length == 0)
                 return BadRequest(new { error = "No lead IDs provided." });
 
             var orgId  = CurrentOrgId;
+            var credit = orgId.HasValue
+                ? await _db.OrgCredits.FirstOrDefaultAsync(c => c.OrgId == orgId && c.CreditType == "enrichment")
+                : null;
+            if (credit != null && credit.Balance <= 0)
+                return StatusCode(402, new { error = "No enrichment credits remaining. Top up your plan to continue." });
+
             var leads  = await _db.Leads
                 .Where(l => req.Ids.Contains(l.Id) &&
                             (l.OrgId == orgId || l.OrgId == null) &&
@@ -182,7 +227,13 @@ namespace RoofingLeadGeneration.Controllers
             var results = new List<object>();
             foreach (var lead in leads)
             {
-                var r = await EnrichLeadAsync(lead);
+                // Re-check balance before each enrich in a bulk run
+                if (credit != null && credit.Balance <= 0)
+                {
+                    results.Add(new { id = lead.Id, result = new { status = "no_credits" } });
+                    continue;
+                }
+                var r = await EnrichLeadAsync(lead, credit);
                 results.Add(new { id = lead.Id, result = r });
             }
 
@@ -295,16 +346,23 @@ namespace RoofingLeadGeneration.Controllers
             var activeLeadsQ = allLeadsQ.Where(l => l.DeletedAt == null);
             var enrichmentsQ = _db.Enrichments.Where(e => e.UserId == userId);
 
+            var enrichCredit = orgId.HasValue
+                ? await _db.OrgCredits.FirstOrDefaultAsync(c => c.OrgId == orgId && c.CreditType == "enrichment")
+                : null;
+
             return Json(new
             {
-                totalLeads           = await activeLeadsQ.CountAsync(),
-                leadsThisMonth       = await activeLeadsQ.CountAsync(l => l.SavedAt >= som),
-                unenrichedCount      = await activeLeadsQ.CountAsync(l => !l.IsEnriched),
-                pipelineCount        = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "new", "contacted", "appointment_set" }.Contains(l.Status)),
-                closedCount          = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "closed_won", "closed_lost" }.Contains(l.Status)),
-                archivedCount        = await allLeadsQ.CountAsync(l => l.DeletedAt != null),
-                totalEnrichments     = await enrichmentsQ.CountAsync(),
-                enrichmentsThisMonth = await enrichmentsQ.CountAsync(e => e.CreatedAt >= som)
+                totalLeads              = await activeLeadsQ.CountAsync(),
+                leadsThisMonth          = await activeLeadsQ.CountAsync(l => l.SavedAt >= som),
+                unenrichedCount         = await activeLeadsQ.CountAsync(l => !l.IsEnriched),
+                pipelineCount           = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "new", "contacted", "appointment_set" }.Contains(l.Status)),
+                closedCount             = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "closed_won", "closed_lost" }.Contains(l.Status)),
+                archivedCount           = await allLeadsQ.CountAsync(l => l.DeletedAt != null),
+                totalEnrichments        = await enrichmentsQ.CountAsync(),
+                enrichmentsThisMonth    = await enrichmentsQ.CountAsync(e => e.CreatedAt >= som),
+                enrichCreditsRemaining  = enrichCredit?.Balance,
+                enrichCreditsUsed       = enrichCredit?.UsedThisPeriod,
+                canEnrich               = CanEnrich
             });
         }
 
@@ -325,7 +383,7 @@ namespace RoofingLeadGeneration.Controllers
         // ─────────────────────────────────────────────────────────────
         // Shared enrichment logic
         // ─────────────────────────────────────────────────────────────
-        private async Task<object> EnrichLeadAsync(Lead lead)
+        private async Task<object> EnrichLeadAsync(Lead lead, Data.Models.OrgCredit? credit = null)
         {
             var services  = HttpContext.RequestServices;
             var config    = services.GetService<IConfiguration>();
@@ -417,9 +475,11 @@ namespace RoofingLeadGeneration.Controllers
                 }
             }
 
-            // Mark as enriched if we got anything useful
-            if (status == "completed")
-                lead.IsEnriched = true;
+            // Always mark as enriched once a lookup has been attempted —
+            // even "not_found" results move the lead out of the unenriched queue
+            // so it doesn't get retried repeatedly. The Enrichments record captures
+            // the actual outcome (completed vs not_found).
+            lead.IsEnriched = true;
 
             _db.Enrichments.Add(new Enrichment
             {
@@ -431,6 +491,27 @@ namespace RoofingLeadGeneration.Controllers
                 CreditsUsed = 1,
                 CreatedAt   = DateTime.UtcNow
             });
+
+            // Deduct one enrichment credit and write an immutable ledger entry
+            if (credit != null)
+            {
+                credit.Balance        = Math.Max(0, credit.Balance - 1);
+                credit.UsedThisPeriod += 1;
+                credit.UpdatedAt      = DateTime.UtcNow;
+
+                _db.OrgCreditTransactions.Add(new Data.Models.OrgCreditTransaction
+                {
+                    OrgId         = credit.OrgId,
+                    UserId        = CurrentUserId,
+                    CreditType    = "enrichment",
+                    Amount        = -1,
+                    BalanceAfter  = credit.Balance,
+                    Description   = $"Lead enriched: {lead.Address}",
+                    ReferenceId   = lead.Id.ToString(),
+                    ReferenceType = "lead",
+                    CreatedAt     = DateTime.UtcNow
+                });
+            }
 
             await _db.SaveChangesAsync();
 

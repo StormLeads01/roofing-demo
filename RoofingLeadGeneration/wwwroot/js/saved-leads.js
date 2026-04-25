@@ -8,6 +8,7 @@ let selectedIds   = new Set();
 let editingId      = null;
 let editingNotesId = null;
 let viewingContactsId = null;
+let canEnrich     = false;   // set from /Leads/Stats — owners/managers only
 
 document.addEventListener('DOMContentLoaded', function() { loadLeads(); refreshTabCounts(); });
 
@@ -65,6 +66,8 @@ async function refreshTabCounts() {
         if (pel) pel.textContent = s.pipelineCount   ?? '';
         if (cel) cel.textContent = s.closedCount     ?? '';
         if (ael) ael.textContent = s.archivedCount   ?? '';
+        // Update role-gated flag so action buttons render correctly
+        canEnrich = s.canEnrich === true;
     } catch {}
 }
 
@@ -457,8 +460,11 @@ function buildRow(lead) {
              '<button onclick="saveOwner(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 transition" title="Save"><i class="fa-solid fa-check text-xs"></i></button>' +
              '<button onclick="cancelEdit()" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Cancel"><i class="fa-solid fa-xmark text-xs"></i></button></div>';
     } else if (activeTab === 'unenriched') {
+        const enrichBtn = canEnrich
+            ? '<button onclick="enrichLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-orange-500/10 hover:bg-orange-500/30 text-orange-400 border border-orange-500/20 transition" title="Enrich"><i class="fa-solid fa-bolt text-xs"></i></button>'
+            : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
-             '<button onclick="enrichLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-orange-500/10 hover:bg-orange-500/30 text-orange-400 border border-orange-500/20 transition" title="Enrich"><i class="fa-solid fa-bolt text-xs"></i></button>' +
+             enrichBtn +
              '<button onclick="startEdit(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition" title="Edit owner"><i class="fa-solid fa-pen text-xs"></i></button>' +
              notesBtn +
              '<button onclick="archiveLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Archive"><i class="fa-solid fa-box-archive text-xs"></i></button></div>';
@@ -475,6 +481,7 @@ function buildRow(lead) {
             ? '<button onclick="toggleContacts(' + lead.id + ')" class="' + contactsBtnCls + '" title="View ' + cCount + ' contact' + (cCount !== 1 ? 's' : '') + '"><i class="fa-solid fa-users"></i>' + (cCount > 1 ? '<span>' + cCount + '</span>' : '') + '</button>'
             : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
+             '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></a>' +
              '<button onclick="startEdit(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition" title="Edit owner"><i class="fa-solid fa-pen text-xs"></i></button>' +
              notesBtn + contactsBtn +
              '<span class="w-7 h-7 flex items-center justify-center" title="Enriched leads are protected"><i class="fa-solid fa-shield-halved text-xs text-slate-600"></i></span></div>';
@@ -485,8 +492,8 @@ function buildRow(lead) {
     }
 
     const statusCell = activeTab !== 'archived'
-        ? '<td class="hidden lg:table-cell">' + buildStatusDropdown(lead) + '</td>'
-        : '<td class="hidden lg:table-cell"><span class="text-xs text-slate-600 italic">archived</span></td>';
+        ? '<td class="hidden xl:table-cell">' + buildStatusDropdown(lead) + '</td>'
+        : '<td class="hidden xl:table-cell"><span class="text-xs text-slate-600 italic">archived</span></td>';
 
     let contactsExpRow = '';
     if (viewingContactsId === lead.id && lead.contacts && lead.contacts.length > 0) {
@@ -552,7 +559,7 @@ function buildRow(lead) {
             escapeHtml(lead.lastStormDate || '') +
             (lead.lastStormDate ? '<br>' + buildClaimBadge(lead.lastStormDate, lead.address) : '') +
         '</td>' +
-        '<td class="hidden lg:table-cell whitespace-nowrap">' + (lead.yearBuilt ? lead.yearBuilt : '<span class="text-slate-600 italic text-xs">-</span>') + '</td>' +
+        '<td class="hidden xl:table-cell whitespace-nowrap">' + (lead.yearBuilt ? lead.yearBuilt : '<span class="text-slate-600 italic text-xs">-</span>') + '</td>' +
         '<td class="hidden xl:table-cell">' + em + '</td>' +
         statusCell +
         '<td class="sticky-actions">' + ac + '</td></tr>' +
@@ -733,12 +740,13 @@ function buildMobileCard(lead) {
 
     const enrichedBadge = lead.isEnriched ? '<span class="text-xs text-green-400 font-semibold"><i class="fa-solid fa-check-circle mr-1"></i>Enriched</span>' : '';
 
+    const reportBtn = '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="py-2 px-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf"></i></a>';
     const actionBtns = activeTab === 'unenriched'
-        ? '<button onclick="enrichLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 active:bg-orange-500/30 transition"><i class="fa-solid fa-bolt mr-1"></i>Enrich</button>' +
+        ? (canEnrich ? '<button onclick="enrichLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 active:bg-orange-500/30 transition"><i class="fa-solid fa-bolt mr-1"></i>Enrich</button>' : '') +
           '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' +
           '<button onclick="archiveLead(' + lead.id + ', this)" class="py-2 px-3.5 rounded-xl bg-slate-600/40 border border-slate-600 text-slate-400 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-box-archive"></i></button>'
         : (activeTab === 'pipeline' || activeTab === 'closed')
-        ? '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>'
+        ? reportBtn + '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>'
         : '<button onclick="restoreLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold hover:bg-green-500/20 transition"><i class="fa-solid fa-rotate-left mr-1"></i>Restore</button>';
 
     const statusRow = activeTab !== 'archived'

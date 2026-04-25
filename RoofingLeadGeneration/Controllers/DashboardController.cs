@@ -32,8 +32,13 @@ namespace RoofingLeadGeneration.Controllers
             var now    = DateTime.UtcNow;
             var som    = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-            var leadsQ       = _db.Leads.Where(l => l.OrgId == orgId || l.OrgId == null);
+            var leadsQ       = _db.Leads.Where(l => (l.OrgId == orgId || l.OrgId == null) && l.DeletedAt == null);
             var enrichmentsQ = _db.Enrichments.Where(e => e.UserId == userId);
+
+            var pipelineStatuses = new[] { "new", "contacted", "appointment_set" };
+            var closedWonCount   = await leadsQ.CountAsync(l => l.Status == "closed_won");
+            var closedLostCount  = await leadsQ.CountAsync(l => l.Status == "closed_lost");
+            var totalClosed      = closedWonCount + closedLostCount;
 
             ViewBag.UserName           = User.Identity?.Name ?? "Guest";
             ViewBag.IsAdmin            = IsAdmin();
@@ -41,6 +46,9 @@ namespace RoofingLeadGeneration.Controllers
             ViewBag.LeadsThisMonth     = await leadsQ.CountAsync(l => l.SavedAt >= som);
             ViewBag.TotalEnrich        = await enrichmentsQ.CountAsync();
             ViewBag.EnrichThisMonth    = await enrichmentsQ.CountAsync(e => e.CreatedAt >= som);
+            ViewBag.PipelineCount      = await leadsQ.CountAsync(l => pipelineStatuses.Contains(l.Status) && l.IsEnriched);
+            ViewBag.ClosedWonCount     = closedWonCount;
+            ViewBag.WinRate            = totalClosed > 0 ? (int)Math.Round(closedWonCount * 100.0 / totalClosed) : (int?)null;
 
             var rawLeads = await leadsQ
                 .OrderByDescending(l => l.SavedAt)

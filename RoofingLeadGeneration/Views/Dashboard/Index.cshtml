@@ -6,6 +6,9 @@
     var leadsThisMonth  = (long)(ViewBag.LeadsThisMonth  ?? 0L);
     var totalEnrich     = (long)(ViewBag.TotalEnrich     ?? 0L);
     var enrichThisMonth = (long)(ViewBag.EnrichThisMonth ?? 0L);
+    var pipelineCount   = (long)(ViewBag.PipelineCount   ?? 0L);
+    var closedWonCount  = (long)(ViewBag.ClosedWonCount  ?? 0L);
+    var winRate         = ViewBag.WinRate as int?;
     var recentLeads     = ViewBag.RecentLeads     as List<(string Address, string Risk, string Hail, string SavedAt)> ?? new();
     var recentEnrich    = ViewBag.RecentEnrich    as List<(string Address, string Status, string CreatedAt)>          ?? new();
 }
@@ -143,10 +146,18 @@
             <p class="text-xs text-slate-500 mt-1">this month · @totalEnrich total</p>
         </div>
 
-        <div class="stat-card border-brand/30">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Contact Lookup</p>
-            <p class="text-sm font-bold text-brand mt-2">Coming soon</p>
-            <p class="text-xs text-slate-500 mt-1">BatchSkipTracing integration</p>
+        <div class="stat-card">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Win Rate</p>
+            @if (winRate.HasValue)
+            {
+                <p class="text-3xl font-extrabold @(winRate.Value >= 50 ? "text-green-400" : "text-brand")">@winRate.Value<span class="text-lg font-bold">%</span></p>
+                <p class="text-xs text-slate-500 mt-1">@closedWonCount won · @pipelineCount in pipeline</p>
+            }
+            else
+            {
+                <p class="text-3xl font-extrabold text-slate-600">—</p>
+                <p class="text-xs text-slate-500 mt-1">@pipelineCount in pipeline · no closed deals yet</p>
+            }
         </div>
 
     </div>

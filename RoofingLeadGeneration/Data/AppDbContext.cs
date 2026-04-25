@@ -14,6 +14,8 @@ namespace RoofingLeadGeneration.Data
         public DbSet<LeadContact>  LeadContacts => Set<LeadContact>();
         public DbSet<WatchedArea>  WatchedAreas => Set<WatchedArea>();
         public DbSet<SentAlert>    SentAlerts   => Set<SentAlert>();
+        public DbSet<OrgCredit>            OrgCredits            => Set<OrgCredit>();
+        public DbSet<OrgCreditTransaction> OrgCreditTransactions => Set<OrgCreditTransaction>();
 
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -201,6 +203,62 @@ namespace RoofingLeadGeneration.Data
                  .WithMany(u => u.WatchedAreas)
                  .HasForeignKey(w => w.UserId)
                  .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── OrgCredit ─────────────────────────────────────────────────
+            m.Entity<OrgCredit>(e =>
+            {
+                e.ToTable("org_credits");
+                e.HasKey(c => c.Id);
+                e.Property(c => c.Id).HasColumnName("id");
+                e.Property(c => c.OrgId).HasColumnName("org_id");
+                e.Property(c => c.CreditType).HasColumnName("credit_type").IsRequired();
+                e.Property(c => c.Balance).HasColumnName("balance").HasDefaultValue(0);
+                e.Property(c => c.UsedThisPeriod).HasColumnName("used_this_period").HasDefaultValue(0);
+                e.Property(c => c.PeriodStart).HasColumnName("period_start")
+                 .HasDefaultValueSql("datetime('now')");
+                e.Property(c => c.PeriodEnd).HasColumnName("period_end");
+                e.Property(c => c.UpdatedAt).HasColumnName("updated_at")
+                 .HasDefaultValueSql("datetime('now')");
+
+                e.HasIndex(c => new { c.OrgId, c.CreditType }).IsUnique();
+
+                e.HasOne(c => c.Org)
+                 .WithMany()
+                 .HasForeignKey(c => c.OrgId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── OrgCreditTransaction ──────────────────────────────────────
+            m.Entity<OrgCreditTransaction>(e =>
+            {
+                e.ToTable("org_credit_transactions");
+                e.HasKey(t => t.Id);
+                e.Property(t => t.Id).HasColumnName("id");
+                e.Property(t => t.OrgId).HasColumnName("org_id");
+                e.Property(t => t.UserId).HasColumnName("user_id");
+                e.Property(t => t.CreditType).HasColumnName("credit_type").IsRequired();
+                e.Property(t => t.Amount).HasColumnName("amount");
+                e.Property(t => t.BalanceAfter).HasColumnName("balance_after");
+                e.Property(t => t.Description).HasColumnName("description");
+                e.Property(t => t.ReferenceId).HasColumnName("reference_id");
+                e.Property(t => t.ReferenceType).HasColumnName("reference_type");
+                e.Property(t => t.CreatedAt).HasColumnName("created_at")
+                 .HasDefaultValueSql("datetime('now')");
+
+                e.HasIndex(t => t.OrgId);
+                e.HasIndex(t => t.UserId);
+                e.HasIndex(t => t.CreatedAt);
+
+                e.HasOne(t => t.Org)
+                 .WithMany()
+                 .HasForeignKey(t => t.OrgId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(t => t.User)
+                 .WithMany()
+                 .HasForeignKey(t => t.UserId)
+                 .OnDelete(DeleteBehavior.SetNull);
             });
 
             // ── SentAlert ────────────────────────────────────────────────

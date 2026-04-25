@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Infrastructure;
 using RoofingLeadGeneration.Data;
 using RoofingLeadGeneration.Services;
+
+QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
 var config  = builder.Configuration;
@@ -97,6 +100,7 @@ builder.Services.AddHttpClient("tomorrow", c =>
 // ── Services ──────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<RealDataService>();
 builder.Services.AddSingleton<EmailService>();
+builder.Services.AddSingleton<HailReportService>();
 builder.Services.AddHostedService<StormAlertService>();
 
 // ── Pipeline ──────────────────────────────────────────────────────────────
@@ -302,6 +306,52 @@ using (var scope = app.Services.CreateScope())
         cmd.ExecuteNonQuery();
     }
 
+    if (!TableExists("org_credits"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE org_credits (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id           INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+                credit_type      TEXT NOT NULL,
+                balance          INTEGER NOT NULL DEFAULT 0,
+                used_this_period INTEGER NOT NULL DEFAULT 0,
+                period_start     TEXT NOT NULL DEFAULT (datetime('now')),
+                period_end       TEXT,
+                updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE UNIQUE INDEX ix_org_credits_org_type ON org_credits(org_id, credit_type)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("org_credit_transactions"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE org_credit_transactions (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id         INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+                user_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                credit_type    TEXT NOT NULL,
+                amount         INTEGER NOT NULL,
+                balance_after  INTEGER NOT NULL,
+                description    TEXT NOT NULL DEFAULT '',
+                reference_id   TEXT,
+                reference_type TEXT,
+                created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_org_credit_tx_org_id     ON org_credit_transactions(org_id)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_org_credit_tx_user_id    ON org_credit_transactions(user_id)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_org_credit_tx_created_at ON org_credit_transactions(created_at)";
+        cmd.ExecuteNonQuery();
+    }
+
     // ── Seed demo user + leads ────────────────────────────────────────
     var demoEmail = config["Auth:DemoEmail"] ?? "james@repwing.com";
     long demoUserId = 0;
@@ -381,6 +431,24 @@ using (var scope = app.Services.CreateScope())
         else
         {
             demoOrgId = Convert.ToInt64(existingOrgId);
+        }
+
+        // ── Ensure demo org has credit rows ──────────────────────────────
+        cmd.Parameters.Clear();
+        foreach (var creditType in new[] { "enrichment", "sms", "search" })
+        {
+            cmd.Parameters.Clear();
+            cmd.CommandText = @"INSERT OR IGNORE INTO org_credits
+                (org_id, credit_type, balance, used_this_period, period_start, updated_at)
+                VALUES (@oid, @ct, @bal, 0, datetime('now'), datetime('now'))";
+            var pOidC  = cmd.CreateParameter(); pOidC.ParameterName  = "@oid"; pOidC.Value = demoOrgId;
+            var pCtC   = cmd.CreateParameter(); pCtC.ParameterName   = "@ct";  pCtC.Value  = creditType;
+            // Demo org gets a generous starting balance
+            var pBalC  = cmd.CreateParameter(); pBalC.ParameterName  = "@bal"; pBalC.Value =
+                creditType == "enrichment" ? 500 :
+                creditType == "sms"        ? 1000 : 250;
+            cmd.Parameters.Add(pOidC); cmd.Parameters.Add(pCtC); cmd.Parameters.Add(pBalC);
+            cmd.ExecuteNonQuery();
         }
 
         // Seed demo leads only if none exist yet for this user
