@@ -48,7 +48,7 @@ async function loadLeads() {
     } catch (e) {
         setLoading(false);
         document.getElementById('leadsBody').innerHTML =
-            '<tr><td colspan="11" class="text-center text-red-400 py-8 text-sm px-4">' +
+            '<tr><td colspan="7" class="text-center text-red-400 py-8 text-sm px-4">' +
             '<i class="fa-solid fa-triangle-exclamation mr-2"></i>Failed to load: ' + escapeHtml(e.message) + '</td></tr>';
     }
 }
@@ -432,17 +432,6 @@ async function saveNotes(id) {
 function buildRow(lead) {
     const rc  = ({ High:'badge-high', Medium:'badge-medium', Low:'badge-low' }[lead.riskLevel]) || 'badge-low';
     const ed  = editingId === lead.id;
-    const dash= '<span class="text-slate-600 italic">\u2014</span>';
-
-    const nm = ed
-        ? '<input class="owner-input" id="eName_'  + lead.id + '" value="' + escapeAttr(lead.ownerName  || '') + '" placeholder="Owner name..." />'
-        : (lead.ownerName  ? '<span class="text-slate-300">' + escapeHtml(lead.ownerName) + '</span>' : dash);
-    const ph = ed
-        ? '<input class="owner-input" id="ePhone_' + lead.id + '" value="' + escapeAttr(lead.ownerPhone || '') + '" placeholder="(555) 000-0000" />'
-        : (lead.ownerPhone ? '<a href="tel:' + escapeAttr(lead.ownerPhone) + '" class="text-slate-300 hover:text-brand">' + escapeHtml(lead.ownerPhone) + '</a>' : dash);
-    const em = ed
-        ? '<input class="owner-input" id="eEmail_' + lead.id + '" value="' + escapeAttr(lead.ownerEmail || '') + '" placeholder="owner@example.com" />'
-        : (lead.ownerEmail ? '<a href="mailto:' + escapeAttr(lead.ownerEmail) + '" class="text-slate-300 hover:text-brand truncate block">' + escapeHtml(lead.ownerEmail) + '</a>' : dash);
 
     const cbCell = activeTab !== 'archived'
         ? '<td class="w-8"><input type="checkbox" class="row-checkbox accent-orange-500 w-4 h-4 cursor-pointer" data-id="' + lead.id + '" onchange="toggleRowSelect(this)" /></td>'
@@ -454,19 +443,19 @@ function buildRow(lead) {
         : 'w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 border border-slate-600 transition';
     const notesBtn = '<button onclick="openNotes(' + lead.id + ')" class="' + notesBtnCls + '" title="' + (hasNotes ? escapeAttr(lead.notes.slice(0,80)) : 'Add notes') + '"><i class="fa-solid fa-note-sticky text-xs"></i></button>';
 
+    // Pencil button toggles the edit expansion row; highlights when active
+    const penCls = ed
+        ? 'w-7 h-7 rounded-lg flex items-center justify-center bg-brand/20 text-brand border border-brand/40 transition'
+        : 'w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition';
+    const penBtn = '<button onclick="' + (ed ? 'cancelEdit()' : 'startEdit(' + lead.id + ')') + '" class="' + penCls + '" title="' + (ed ? 'Cancel edit' : 'Edit contact') + '"><i class="fa-solid fa-pen text-xs"></i></button>';
+
     let ac;
-    if (ed) {
-        ac = '<div class="flex items-center justify-center gap-1">' +
-             '<button onclick="saveOwner(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 transition" title="Save"><i class="fa-solid fa-check text-xs"></i></button>' +
-             '<button onclick="cancelEdit()" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Cancel"><i class="fa-solid fa-xmark text-xs"></i></button></div>';
-    } else if (activeTab === 'unenriched') {
+    if (activeTab === 'unenriched') {
         const enrichBtn = canEnrich
             ? '<button onclick="enrichLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-orange-500/10 hover:bg-orange-500/30 text-orange-400 border border-orange-500/20 transition" title="Enrich"><i class="fa-solid fa-bolt text-xs"></i></button>'
             : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
-             enrichBtn +
-             '<button onclick="startEdit(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition" title="Edit owner"><i class="fa-solid fa-pen text-xs"></i></button>' +
-             notesBtn +
+             enrichBtn + penBtn + notesBtn +
              '<button onclick="archiveLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Archive"><i class="fa-solid fa-box-archive text-xs"></i></button></div>';
     } else if (activeTab === 'pipeline' || activeTab === 'closed') {
         const hasContacts = (lead.contacts && lead.contacts.length > 0);
@@ -481,12 +470,13 @@ function buildRow(lead) {
             ? '<button onclick="toggleContacts(' + lead.id + ')" class="' + contactsBtnCls + '" title="View ' + cCount + ' contact' + (cCount !== 1 ? 's' : '') + '"><i class="fa-solid fa-users"></i>' + (cCount > 1 ? '<span>' + cCount + '</span>' : '') + '</button>'
             : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
+             '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></a>' +
-             '<button onclick="startEdit(' + lead.id + ')" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition" title="Edit owner"><i class="fa-solid fa-pen text-xs"></i></button>' +
-             notesBtn + contactsBtn +
+             penBtn + notesBtn + contactsBtn +
              '<span class="w-7 h-7 flex items-center justify-center" title="Enriched leads are protected"><i class="fa-solid fa-shield-halved text-xs text-slate-600"></i></span></div>';
     } else {
         ac = '<div class="flex items-center justify-center gap-1">' +
+             '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<button onclick="restoreLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/10 hover:bg-green-500/30 text-green-400 border border-green-500/20 transition" title="Restore to active"><i class="fa-solid fa-rotate-left text-xs"></i></button>' +
              notesBtn + '</div>';
     }
@@ -494,6 +484,20 @@ function buildRow(lead) {
     const statusCell = activeTab !== 'archived'
         ? '<td class="hidden xl:table-cell">' + buildStatusDropdown(lead) + '</td>'
         : '<td class="hidden xl:table-cell"><span class="text-xs text-slate-600 italic">archived</span></td>';
+
+    // Edit contact — expands a row below (pencil icon toggles it)
+    const editExpRow = ed
+        ? '<tr class="notes-row" data-edit-for="' + lead.id + '">' +
+          '<td colspan="7" class="notes-row-cell">' +
+          '<div class="flex items-center gap-2">' +
+          '<span class="text-xs font-semibold text-slate-400 uppercase tracking-wide shrink-0"><i class="fa-solid fa-user mr-1.5"></i>Contact</span>' +
+          '<input class="owner-input flex-1" id="eName_' + lead.id + '" value="' + escapeAttr(lead.ownerName || '') + '" placeholder="Owner name..." />' +
+          '<input class="owner-input flex-1" id="ePhone_' + lead.id + '" value="' + escapeAttr(lead.ownerPhone || '') + '" placeholder="(555) 000-0000" />' +
+          '<input class="owner-input flex-1" id="eEmail_' + lead.id + '" value="' + escapeAttr(lead.ownerEmail || '') + '" placeholder="owner@example.com" />' +
+          '<button onclick="saveOwner(' + lead.id + ')" class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 transition" title="Save"><i class="fa-solid fa-check text-xs"></i></button>' +
+          '<button onclick="cancelEdit()" class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Cancel"><i class="fa-solid fa-xmark text-xs"></i></button>' +
+          '</div></td></tr>'
+        : '';
 
     let contactsExpRow = '';
     if (viewingContactsId === lead.id && lead.contacts && lead.contacts.length > 0) {
@@ -518,7 +522,7 @@ function buildRow(lead) {
                    '</div>';
         }).join('');
         contactsExpRow = '<tr class="notes-row" data-contacts-for="' + lead.id + '">' +
-            '<td colspan="11" class="notes-row-cell">' +
+            '<td colspan="7" class="notes-row-cell">' +
             '<div class="flex items-center justify-between mb-2">' +
             '<span class="text-xs font-semibold text-sky-400 uppercase tracking-wide"><i class="fa-solid fa-users mr-1.5"></i>Contacts (' + lead.contacts.length + ')</span>' +
             '<button onclick="toggleContacts(' + lead.id + ')" class="text-xs text-slate-500 hover:text-slate-300 transition"><i class="fa-solid fa-xmark"></i></button>' +
@@ -527,7 +531,7 @@ function buildRow(lead) {
 
     const notesExpRow = editingNotesId === lead.id
         ? '<tr class="notes-row" data-notes-for="' + lead.id + '">' +
-          '<td colspan="11" class="notes-row-cell">' +
+          '<td colspan="7" class="notes-row-cell">' +
           '<div class="flex items-start gap-2">' +
           '<textarea id="notesArea_' + lead.id + '" class="notes-textarea" rows="2" placeholder="Add notes about this lead..." ' +
           'onkeydown="if(event.key===\'Escape\'){closeNotes();}else if((event.metaKey||event.ctrlKey)&&event.key===\'Enter\'){saveNotes(' + lead.id + ');}">' +
@@ -552,18 +556,14 @@ function buildRow(lead) {
         '<td class="font-medium text-white" style="max-width:200px"><span class="block truncate" title="' + escapeAttr(lead.address) + '">' + escapeHtml(lead.address) + '</span>' +
         (lead.sourceAddress ? '<span class="block text-xs text-slate-500 truncate">from ' + escapeHtml(lead.sourceAddress) + '</span>' : '') + '</td>' +
         '<td><span class="' + rc + ' px-2 py-0.5 rounded-full text-xs font-bold">' + escapeHtml(lead.riskLevel) + '</span></td>' +
-        '<td class="hidden sm:table-cell">' + nm + '</td>' +
-        '<td class="hidden sm:table-cell whitespace-nowrap">' + ph + '</td>' +
-        '<td class="hidden md:table-cell whitespace-nowrap">' + hailCell + '</td>' +
+        '<td class="hidden md:table-cell">' + hailCell + '</td>' +
         '<td class="hidden md:table-cell whitespace-nowrap">' +
             escapeHtml(lead.lastStormDate || '') +
             (lead.lastStormDate ? '<br>' + buildClaimBadge(lead.lastStormDate, lead.address) : '') +
         '</td>' +
-        '<td class="hidden xl:table-cell whitespace-nowrap">' + (lead.yearBuilt ? lead.yearBuilt : '<span class="text-slate-600 italic text-xs">-</span>') + '</td>' +
-        '<td class="hidden xl:table-cell">' + em + '</td>' +
         statusCell +
         '<td class="sticky-actions">' + ac + '</td></tr>' +
-        contactsExpRow + notesExpRow;
+        editExpRow + contactsExpRow + notesExpRow;
 }
 
 // ── Row actions ───────────────────────────────────────────────────
@@ -741,13 +741,14 @@ function buildMobileCard(lead) {
     const enrichedBadge = lead.isEnriched ? '<span class="text-xs text-green-400 font-semibold"><i class="fa-solid fa-check-circle mr-1"></i>Enriched</span>' : '';
 
     const reportBtn = '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="py-2 px-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf"></i></a>';
+    const viewBtn = '<a href="/Leads/' + lead.id + '" class="py-2 px-3.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>';
     const actionBtns = activeTab === 'unenriched'
         ? (canEnrich ? '<button onclick="enrichLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 active:bg-orange-500/30 transition"><i class="fa-solid fa-bolt mr-1"></i>Enrich</button>' : '') +
           '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' +
           '<button onclick="archiveLead(' + lead.id + ', this)" class="py-2 px-3.5 rounded-xl bg-slate-600/40 border border-slate-600 text-slate-400 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-box-archive"></i></button>'
         : (activeTab === 'pipeline' || activeTab === 'closed')
-        ? reportBtn + '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>'
-        : '<button onclick="restoreLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold hover:bg-green-500/20 transition"><i class="fa-solid fa-rotate-left mr-1"></i>Restore</button>';
+        ? reportBtn + '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' + viewBtn
+        : viewBtn + '<button onclick="restoreLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold hover:bg-green-500/20 transition"><i class="fa-solid fa-rotate-left mr-1"></i>Restore</button>';
 
     const statusRow = activeTab !== 'archived'
         ? '<div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-700/60">' +

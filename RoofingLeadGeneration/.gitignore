@@ -19,3 +19,8 @@ appsettings.Development.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude dev tools — watcher output and scripts
+_build-output.json
+_tools/*.ps1
+_tools/*.md

@@ -20,6 +20,32 @@ namespace RoofingLeadGeneration.Controllers
 
         private const string GeocodingBase = "https://maps.googleapis.com/maps/api/geocode/json";
 
+        // ── Claim window lookup — mirrors claim-window.js CLAIM_WINDOW_YEARS ──────────────
+        // Years a homeowner has to file after a storm event, by state.
+        // Sources: state insurance codes, NAIC, United Policyholders.  Last reviewed Apr 2026.
+        // Keep in sync with wwwroot/js/claim-window.js.
+        private static readonly IReadOnlyDictionary<string, int> ClaimWindowYearsByState =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AL"] = 2, ["AK"] = 3, ["AZ"] = 2, ["AR"] = 5, ["CA"] = 2,
+                ["CO"] = 2, ["CT"] = 2, ["DE"] = 2, ["FL"] = 1, ["GA"] = 2,
+                ["HI"] = 2, ["ID"] = 2, ["IL"] = 2, ["IN"] = 2, ["IA"] = 5,
+                ["KS"] = 5, ["KY"] = 2, ["LA"] = 1, ["ME"] = 6, ["MD"] = 3,
+                ["MA"] = 2, ["MI"] = 1, ["MN"] = 1, ["MS"] = 3, ["MO"] = 5,
+                ["MT"] = 2, ["NE"] = 4, ["NV"] = 3, ["NH"] = 3, ["NJ"] = 2,
+                ["NM"] = 6, ["NY"] = 2, ["NC"] = 3, ["ND"] = 6, ["OH"] = 2,
+                ["OK"] = 5, ["OR"] = 2, ["PA"] = 2, ["RI"] = 3, ["SC"] = 3,
+                ["SD"] = 6, ["TN"] = 2, ["TX"] = 1, ["UT"] = 3, ["VT"] = 3,
+                ["VA"] = 5, ["WA"] = 1, ["WV"] = 2, ["WI"] = 1, ["WY"] = 4,
+                ["DC"] = 3,
+            };
+
+        private static int GetClaimWindowDays(string stateAbbr)
+        {
+            var years = ClaimWindowYearsByState.TryGetValue(stateAbbr ?? "", out var y) ? y : 2;
+            return (int)Math.Round(years * 365.25);
+        }
+
         public RoofHealthController(RealDataService realData, IConfiguration config,
                                     IWebHostEnvironment env, ILogger<RoofHealthController> logger)
         {
@@ -320,20 +346,37 @@ namespace RoofingLeadGeneration.Controllers
                 hailEvents.AddRange(stormEvents);
             }
 
-            var rng = new Random(centerAddress.GetHashCode());
-            var records = osmAddresses
-                .OrderBy(_ => rng.Next())
-                .Take(50)
-                .Select(addr => BuildRealRecord(addr, hailEvents))
+            // Always include the searched address itself — OSM often misses the exact parcel,
+            // especially in newer subdivisions like Glenn Heights.  Pin it first, then fill
+            // up to 149 neighbours sorted by proximity so the whole street shows up before
+            // distant blocks do.  Deduplicate anything within ~150 ft of the center.
+            const double dedupeThresholdMiles = 0.03; // ~150 ft
+            var centerOsm = new RealDataService.OsmAddress
+            {
+                FullAddress = centerAddress,
+                Lat         = centerLat,
+                Lng         = centerLng
+            };
+            var centerRecord = BuildRealRecord(centerOsm, hailEvents, stateAbbr);
+
+            var neighbourRecords = osmAddresses
+                .Where(a => RealDataService.HaversineDistanceMiles(a.Lat, a.Lng, centerLat, centerLng) > dedupeThresholdMiles)
+                .OrderBy(a => RealDataService.HaversineDistanceMiles(a.Lat, a.Lng, centerLat, centerLng))
+                .Take(149)
+                .Select(addr => BuildRealRecord(addr, hailEvents, stateAbbr))
                 .ToList();
 
-            records.Sort((a, b) =>
+            neighbourRecords.Sort((a, b) =>
             {
                 int ra = RiskOrder(a.RiskLevel), rb = RiskOrder(b.RiskLevel);
                 return ra != rb
                     ? ra.CompareTo(rb)
                     : string.Compare(a.Address, b.Address, StringComparison.Ordinal);
             });
+
+            // Searched address always leads the list
+            var records = new List<PropertyRecord> { centerRecord };
+            records.AddRange(neighbourRecords);
 
             return (records, hailEvents.Count);
         }
@@ -343,10 +386,11 @@ namespace RoofingLeadGeneration.Controllers
         // ─────────────────────────────────────────────────────────────────
         private static PropertyRecord BuildRealRecord(
             RealDataService.OsmAddress addr,
-            List<RealDataService.HailEvent> hailEvents)
+            List<RealDataService.HailEvent> hailEvents,
+            string stateAbbr = "TX")
         {
             var (risk, hailSize, stormDate, dataSource, claimDays, claimTier) = ComputeRiskFromHail(
-                addr.Lat, addr.Lng, hailEvents);
+                addr.Lat, addr.Lng, hailEvents, stateAbbr);
 
             return new PropertyRecord
             {
@@ -369,15 +413,16 @@ namespace RoofingLeadGeneration.Controllers
         //   - Low    if events exist but below threshold
         //   - No data if no events for this area
         //
-        //   Claim window tiers (Texas 2-year statute of limitations):
-        //   - "hot"      : 0–365 days since last storm  (prime time, file now!)
-        //   - "fileable" : 366–730 days                 (still within 2-yr window)
-        //   - "expired"  : > 730 days                   (past filing window)
+        //   Claim window tiers — derived from ClaimWindowYearsByState lookup:
+        //   - "hot"      : first half of window  (prime time, file now!)
+        //   - "fileable" : second half of window  (still within deadline, getting urgent)
+        //   - "expired"  : past deadline
         // ─────────────────────────────────────────────────────────────────
         private static (string risk, string hailSize, string stormDate, string dataSource, int? claimDays, string claimTier)
             ComputeRiskFromHail(
                 double lat, double lng,
-                List<RealDataService.HailEvent> hailEvents)
+                List<RealDataService.HailEvent> hailEvents,
+                string stateAbbr = "TX")
         {
             if (hailEvents.Count == 0)
                 return ("Low", "No data", "No data", "none", null, "");
@@ -414,10 +459,12 @@ namespace RoofingLeadGeneration.Controllers
                              : hasTomorrow ? "tomorrow+noaa"
                              :               "noaa";
 
-            // Claim window calculation
-            int daysSince = (int)(DateTime.UtcNow - mostRecent.h.Date).TotalDays;
-            string claimTier = daysSince <= 365 ? "hot"
-                             : daysSince <= 730 ? "fileable"
+            // Claim window calculation — window length driven by state lookup table
+            int windowDays   = GetClaimWindowDays(stateAbbr);
+            int hotThreshold = windowDays / 2;
+            int daysSince    = (int)(DateTime.UtcNow - mostRecent.h.Date).TotalDays;
+            string claimTier = daysSince <= hotThreshold ? "hot"
+                             : daysSince <= windowDays   ? "fileable"
                              : "expired";
 
             return (risk, hailSize, stormDate, source, daysSince, claimTier);

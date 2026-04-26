@@ -11,7 +11,7 @@ namespace RoofingLeadGeneration.Controllers
 {
     [Authorize]
     [Route("[controller]")]
-    public class LeadsController : Controller
+    public class LeadsController : Controller 
     {
         private readonly AppDbContext        _db;
         private readonly IWebHostEnvironment _env;
@@ -38,6 +38,24 @@ namespace RoofingLeadGeneration.Controllers
         // ── GET /Leads/Saved → HTML page ────────────────────────────
         [HttpGet("Saved")]
         public IActionResult Saved() => View();
+
+        // ── GET /Leads/{id} → per-address detail page ───────────────
+        [HttpGet("{id:long}")]
+        public async Task<IActionResult> Detail(long id)
+        {
+            var orgId = CurrentOrgId;
+            var lead  = await _db.Leads
+                .Include(l => l.Contacts)
+                .Include(l => l.Enrichments)
+                .FirstOrDefaultAsync(l => l.Id == id &&
+                    (l.OrgId == orgId || l.OrgId == null) &&
+                    l.DeletedAt == null);
+
+            if (lead == null) return NotFound();
+
+            ViewBag.CanEnrich = CanEnrich;
+            return View(lead);
+        }
 
         // ── GET /Leads?tab=unenriched|pipeline|closed|archived ───────
         [HttpGet]

@@ -65,7 +65,7 @@ const CLAIM_WINDOW_YEARS = {
     SC: { years: 3,  note: 'SC Code § 15-3-530 — 3-year general SOL' },
     SD: { years: 6,  note: 'SDCL § 15-2-13 — 6-year written contract SOL' },
     TN: { years: 2,  note: 'TCA § 28-3-105 — 2-year property damage SOL' },
-    TX: { years: 2,  note: 'TX Insurance Code § 16.004 — 2-year deadline from date of loss' },
+    TX: { years: 1,  note: 'TX Insurance Code § 542A.003 — 1-year deadline from date of loss (HB 1774, 2017)' },
     UT: { years: 3,  note: 'UCA § 78B-2-305 — 3-year property damage SOL' },
     VT: { years: 3,  note: '12 VSA § 512 — 3-year property damage SOL' },
     VA: { years: 5,  note: 'VA Code § 8.01-246 — 5-year written contract SOL' },
