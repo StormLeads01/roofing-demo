@@ -4,7 +4,9 @@
 // Write your JavaScript code.
 
 // ─── State ───────────────────────────────────────────────────
+    let scanMode       = 'neighborhood';  // 'neighborhood' | 'single'
     let allProperties  = [];
+    let allHailEvents  = [];  // hail events returned by last scan
     let currentFilter  = 'all';
     let currentSort    = 'risk';
     let currentAddress = '';
@@ -15,10 +17,32 @@
     let hailOverlayLayer    = null;
     let hailOverlayVisible  = true;
 
+    // ─── Scan mode toggle ─────────────────────────────────────────
+    function switchScanMode(mode) {
+        scanMode = mode;
+        const isNeighborhood = mode === 'neighborhood';
+
+        const btnN = document.getElementById('modeNeighborhood');
+        const btnS = document.getElementById('modeSingle');
+        const radiusWrapper = document.getElementById('radiusWrapper');
+        const btnText = document.getElementById('btnText');
+
+        if (isNeighborhood) {
+            btnN.className = 'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all bg-brand text-white shadow';
+            btnS.className = 'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-slate-200';
+            radiusWrapper.classList.remove('hidden');
+            btnText.innerHTML = '<i class="fa-solid fa-radar mr-1"></i>Scan Neighborhood';
+        } else {
+            btnS.className = 'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all bg-brand text-white shadow';
+            btnN.className = 'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all text-slate-400 hover:text-slate-200';
+            radiusWrapper.classList.add('hidden');
+            btnText.innerHTML = '<i class="fa-solid fa-location-crosshairs mr-1"></i>Look Up Address';
+        }
+    }
+
     // ─── Scan ─────────────────────────────────────────────────────
     async function runScan() {
         const address = document.getElementById('addressInput').value.trim();
-        const radius  = document.getElementById('radiusSelect').value;
 
         if (!address) {
             showError('Please enter a neighborhood address.');
@@ -44,7 +68,9 @@
             currentLat = lat;
             currentLng = lng;
 
-            const url = `/RoofHealth/Neighborhood?address=${encodeURIComponent(address)}&radius=${radius}&lat=${lat}&lng=${lng}`;
+            const url = scanMode === 'single'
+                ? `/RoofHealth/SingleAddress?address=${encodeURIComponent(address)}&lat=${lat}&lng=${lng}`
+                : `/RoofHealth/Neighborhood?address=${encodeURIComponent(address)}&radius=${document.getElementById('radiusSelect').value}&lat=${lat}&lng=${lng}`;
             const resp = await fetch(url);
 
             if (!resp.ok) {
@@ -54,7 +80,9 @@
 
             const data = await resp.json();
             currentAddress = address;
-            allProperties = data.properties || [];
+            allProperties  = data.properties  || [];
+            allHailEvents  = data.hailEvents   || [];
+
 
             renderResults(data);
         } catch (e) {
@@ -347,7 +375,7 @@
 
         list.innerHTML = props.map((p, idx) => buildCardHtml(p, idx)).join('');
 
-        // Attach scroll-to-map click
+        // Attach click: pan map + toggle card details
         list.querySelectorAll('.prop-card').forEach((card, idx) => {
             card.addEventListener('click', () => {
                 if (mapMarkers[idx]) {
@@ -355,6 +383,13 @@
                     mapMarkers[idx].openPopup();
                 }
                 highlightCard(idx);
+
+                // Toggle collapse
+                const details  = card.querySelector('.card-details');
+                const chevron  = card.querySelector('.card-chevron');
+                const expanded = !details.classList.contains('hidden');
+                details.classList.toggle('hidden', expanded);
+                if (chevron) chevron.style.transform = expanded ? '' : 'rotate(180deg)';
             });
         });
 
@@ -413,24 +448,27 @@
         return `
         <div class="prop-card bg-slate-800/70 border border-slate-700/60 rounded-2xl p-4 mb-3 cursor-pointer"
              data-idx="${idx}">
-            <div class="flex items-start gap-3 mb-3">
+            <div class="flex items-start gap-3">
                 <div class="pt-0.5" onclick="event.stopPropagation()">
                     <input type="checkbox" class="lead-check" data-idx="${idx}"
                            onchange="onCardCheckChange(this)" title="Select for saving" />
                 </div>
                 <div class="flex-1 min-w-0">
-                    <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center justify-between gap-2">
                         <div class="flex-1 min-w-0">
                             <p class="font-bold text-white text-sm leading-tight truncate">${escapeHtml(p.address)}</p>
                         </div>
-                        <span class="${riskClass} flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap">
-                            <i class="fa-solid ${riskIcon}"></i>${p.riskLevel} Risk
-                        </span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="${riskClass} flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+                                <i class="fa-solid ${riskIcon}"></i>${p.riskLevel} Risk
+                            </span>
+                            <i class="fa-solid fa-chevron-down card-chevron text-slate-500 text-xs transition-transform duration-200"></i>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 text-xs ml-7">
+            <div class="card-details hidden grid grid-cols-2 gap-2 text-xs ml-7 mt-3">
                 ${claimBadgeHtml}
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
                     <p class="text-slate-500 mb-0.5">Hail Size</p>
@@ -442,8 +480,11 @@
                     <p class="text-slate-200 font-semibold"><i class="fa-solid fa-calendar-days text-brand mr-1"></i>${escapeHtml(p.lastStormDate)}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
-                    <p class="text-slate-500 mb-0.5">Source</p>
-                    <p class="text-slate-200 font-semibold">${sourceBadge}</p>
+                    <p class="text-slate-500 mb-0.5">Nearby Events</p>
+                    <p class="text-slate-200 font-semibold"><i class="fa-solid fa-cloud-bolt text-brand mr-1"></i>${(function(){
+                        const n = nearbyHailCount(p.lat, p.lng, 2);
+                        return n > 0 ? `${n} hail event${n !== 1 ? 's' : ''} (2 mi)` : 'None recorded';
+                    })()}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
                     <p class="text-slate-500 mb-0.5">Year Built</p>
@@ -522,6 +563,23 @@
     }
 
     // ─── Helpers ──────────────────────────────────────────────────
+    // ─── Haversine distance (miles) ───────────────────────────────
+    function haversineM(lat1, lng1, lat2, lng2) {
+        const R = 3958.8; // Earth radius in miles
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Count hail events within radiusMi of a lat/lng
+    function nearbyHailCount(lat, lng, radiusMi) {
+        if (!allHailEvents || !allHailEvents.length) return 0;
+        return allHailEvents.filter(e => haversineM(lat, lng, e.lat, e.lng) <= radiusMi).length;
+    }
+
     function hailComparison(sizeStr) {
         const m = (sizeStr || '').match(/[\d.]+/);
         if (!m) return '';
@@ -579,7 +637,9 @@
                 _stepTimers.push(t);
             });
         } else {
-            text.innerHTML = '<i class="fa-solid fa-radar mr-1"></i>Scan Neighborhood';
+            text.innerHTML = scanMode === 'single'
+                ? '<i class="fa-solid fa-location-crosshairs mr-1"></i>Look Up Address'
+                : '<i class="fa-solid fa-radar mr-1"></i>Scan Neighborhood';
         }
     }
 
@@ -724,6 +784,14 @@ function switchMainTab(tab) {
         }
     }
 }
+
+// -- Scan mode toggle wiring --
+(function() {
+    var btnN = document.getElementById('modeNeighborhood');
+    var btnS = document.getElementById('modeSingle');
+    if (btnN) btnN.addEventListener('click', function() { switchScanMode('neighborhood'); });
+    if (btnS) btnS.addEventListener('click', function() { switchScanMode('single'); });
+})();
 
 // -- Mobile nav hamburger (shared across pages) --
 function toggleMobileMenu() {

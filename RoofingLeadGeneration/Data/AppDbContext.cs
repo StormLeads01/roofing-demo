@@ -17,13 +17,6 @@ namespace RoofingLeadGeneration.Data
         public DbSet<OrgCredit>            OrgCredits            => Set<OrgCredit>();
         public DbSet<OrgCreditTransaction> OrgCreditTransactions => Set<OrgCreditTransaction>();
 
-        // ── Lead Gen (internal) ──────────────────────────────────────────
-        public DbSet<LeadGenCampaign>       LeadGenCampaigns       => Set<LeadGenCampaign>();
-        public DbSet<LeadGenLead>           LeadGenLeads           => Set<LeadGenLead>();
-        public DbSet<LeadGenSuppressed>     LeadGenSuppressed      => Set<LeadGenSuppressed>();
-        public DbSet<LeadGenContactHistory> LeadGenContactHistory  => Set<LeadGenContactHistory>();
-        public DbSet<LeadGenTarget>         LeadGenTargets         => Set<LeadGenTarget>();
-
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
         protected override void OnModelCreating(ModelBuilder m)
@@ -39,6 +32,14 @@ namespace RoofingLeadGeneration.Data
                 e.Property(o => o.Plan).HasColumnName("plan").HasDefaultValue("free");
                 e.Property(o => o.CreatedAt).HasColumnName("created_at")
                  .HasDefaultValueSql("datetime('now')");
+                e.Property(o => o.CompanyName).HasColumnName("company_name");
+                e.Property(o => o.CompanyEmail).HasColumnName("company_email");
+                e.Property(o => o.Phone).HasColumnName("phone");
+                e.Property(o => o.Website).HasColumnName("website");
+                e.Property(o => o.AccentColor).HasColumnName("accent_color");
+                e.Property(o => o.Tagline).HasColumnName("tagline");
+                e.Property(o => o.LicenseNumber).HasColumnName("license_number");
+                e.Property(o => o.LogoPath).HasColumnName("logo_path");
 
                 e.HasOne(o => o.Owner)
                  .WithMany()
@@ -296,126 +297,6 @@ namespace RoofingLeadGeneration.Data
                  .OnDelete(DeleteBehavior.Cascade);
             });
 
-            // ── LeadGenCampaign ──────────────────────────────────────────
-            m.Entity<LeadGenCampaign>(e =>
-            {
-                e.ToTable("leadgen_campaigns");
-                e.HasKey(c => c.Id);
-                e.Property(c => c.Id).HasColumnName("id");
-                e.Property(c => c.StateAbbr).HasColumnName("state_abbr").IsRequired();
-                e.Property(c => c.StormDate).HasColumnName("storm_date");
-                e.Property(c => c.HailSizeInches).HasColumnName("hail_size_inches");
-                e.Property(c => c.CenterLat).HasColumnName("center_lat");
-                e.Property(c => c.CenterLng).HasColumnName("center_lng");
-                e.Property(c => c.RadiusMiles).HasColumnName("radius_miles");
-                e.Property(c => c.Status).HasColumnName("status").HasDefaultValue("draft");
-                e.Property(c => c.TotalSent).HasColumnName("total_sent").HasDefaultValue(0);
-                e.Property(c => c.TotalResponded).HasColumnName("total_responded").HasDefaultValue(0);
-                e.Property(c => c.CreatedAt).HasColumnName("created_at")
-                 .HasDefaultValueSql("datetime('now')");
-                e.Property(c => c.SentAt).HasColumnName("sent_at");
-                e.Property(c => c.Notes).HasColumnName("notes").HasDefaultValue("");
-
-                e.HasIndex(c => c.StateAbbr);
-                e.HasIndex(c => c.StormDate);
-            });
-
-            // -- LeadGenLead -------------------------------------------
-            m.Entity<LeadGenLead>(e =>
-            {
-                e.ToTable("leadgen_leads");
-                e.HasKey(l => l.Id);
-                e.Property(l => l.Id).HasColumnName("id");
-                e.Property(l => l.CampaignId).HasColumnName("campaign_id");
-                e.Property(l => l.HomeownerPhone).HasColumnName("homeowner_phone").IsRequired();
-                e.Property(l => l.HomeownerName).HasColumnName("homeowner_name").HasDefaultValue("");
-                e.Property(l => l.Address).HasColumnName("address").HasDefaultValue("");
-                e.Property(l => l.Lat).HasColumnName("lat").HasDefaultValue(0.0);
-                e.Property(l => l.Lng).HasColumnName("lng").HasDefaultValue(0.0);
-                e.Property(l => l.HailSizeInches).HasColumnName("hail_size_inches");
-                e.Property(l => l.StormDate).HasColumnName("storm_date");
-                e.Property(l => l.ResponseText).HasColumnName("response_text").HasDefaultValue("");
-                e.Property(l => l.RespondedAt).HasColumnName("responded_at")
-                 .HasDefaultValueSql("datetime('now')");
-                e.Property(l => l.Status).HasColumnName("status").HasDefaultValue("new");
-                e.Property(l => l.CreatedAt).HasColumnName("created_at")
-                 .HasDefaultValueSql("datetime('now')");
-
-                e.HasIndex(l => new { l.CampaignId, l.HomeownerPhone }).IsUnique();
-                e.HasIndex(l => l.Status);
-
-                e.HasOne(l => l.Campaign)
-                 .WithMany(c => c.Leads)
-                 .HasForeignKey(l => l.CampaignId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            // -- LeadGenSuppressed -------------------------------------
-            m.Entity<LeadGenSuppressed>(e =>
-            {
-                e.ToTable("leadgen_suppressed");
-                e.HasKey(s => s.Id);
-                e.Property(s => s.Id).HasColumnName("id");
-                e.Property(s => s.Phone).HasColumnName("phone").IsRequired();
-                e.Property(s => s.Reason).HasColumnName("reason").IsRequired();
-                e.Property(s => s.CampaignId).HasColumnName("campaign_id");
-                e.Property(s => s.SuppressedAt).HasColumnName("suppressed_at")
-                 .HasDefaultValueSql("datetime('now')");
-
-                e.HasIndex(s => s.Phone).IsUnique();
-            });
-
-            // -- LeadGenContactHistory ---------------------------------
-            m.Entity<LeadGenContactHistory>(e =>
-            {
-                e.ToTable("leadgen_contact_history");
-                e.HasKey(h => h.Id);
-                e.Property(h => h.Id).HasColumnName("id");
-                e.Property(h => h.Phone).HasColumnName("phone").IsRequired();
-                e.Property(h => h.CampaignId).HasColumnName("campaign_id");
-                e.Property(h => h.SentAt).HasColumnName("sent_at")
-                 .HasDefaultValueSql("datetime('now')");
-                e.Property(h => h.DncChecked).HasColumnName("dnc_checked").HasDefaultValue(false);
-                e.Property(h => h.DncClean).HasColumnName("dnc_clean").HasDefaultValue(false);
-                e.Property(h => h.Responded).HasColumnName("responded").HasDefaultValue(false);
-                e.Property(h => h.ResponseText).HasColumnName("response_text");
-                e.Property(h => h.RespondedAt).HasColumnName("responded_at");
-                e.Property(h => h.LeadId).HasColumnName("lead_id");
-
-                e.HasIndex(h => new { h.CampaignId, h.Phone }).IsUnique();
-                e.HasIndex(h => h.Phone);
-
-                e.HasOne(h => h.Campaign)
-                 .WithMany()
-                 .HasForeignKey(h => h.CampaignId)
-                 .OnDelete(DeleteBehavior.Cascade);
-
-                e.HasOne(h => h.Lead)
-                 .WithMany()
-                 .HasForeignKey(h => h.LeadId)
-                 .OnDelete(DeleteBehavior.SetNull);
-            });
-
-            // -- LeadGenTarget -----------------------------------------
-            m.Entity<LeadGenTarget>(e =>
-            {
-                e.ToTable("leadgen_targets");
-                e.HasKey(t => t.Id);
-                e.Property(t => t.Id).HasColumnName("id");
-                e.Property(t => t.CampaignId).HasColumnName("campaign_id");
-                e.Property(t => t.Phone).HasColumnName("phone").IsRequired();
-                e.Property(t => t.Address).HasColumnName("address").HasDefaultValue("");
-                e.Property(t => t.AddedAt).HasColumnName("added_at")
-                 .HasDefaultValueSql("datetime('now')");
-
-                e.HasIndex(t => new { t.CampaignId, t.Phone }).IsUnique();
-                e.HasIndex(t => t.CampaignId);
-
-                e.HasOne(t => t.Campaign)
-                 .WithMany()
-                 .HasForeignKey(t => t.CampaignId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
         }
     }
 }

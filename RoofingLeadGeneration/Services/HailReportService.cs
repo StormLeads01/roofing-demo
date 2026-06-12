@@ -2,6 +2,7 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using RoofingLeadGeneration.Data.Models;
+using System.IO;
 
 namespace RoofingLeadGeneration.Services
 {
@@ -24,8 +25,47 @@ namespace RoofingLeadGeneration.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public byte[] Generate(Lead lead, string generatedBy)
+        private static string HailSizeReference(double sizeInches) => sizeInches switch
         {
+            < 0.75 => "Pea",
+            < 0.88 => "Penny",
+            < 1.00 => "Nickel",
+            < 1.25 => "Quarter",
+            < 1.50 => "Half Dollar",
+            < 1.75 => "Ping Pong Ball",
+            < 2.00 => "Golf Ball",
+            < 2.50 => "Hen Egg",
+            < 2.75 => "Tennis Ball",
+            < 4.00 => "Baseball",
+            _      => "Softball"
+        };
+
+        private static string FormatSource(string source) => source switch
+        {
+            "lsr"      => "LSR",
+            "lsr-wind" => "LSR",
+            "tomorrow" => "Tomorrow.io",
+            _          => "NOAA"
+        };
+
+        public byte[] Generate(
+            Lead lead,
+            string generatedBy,
+            IReadOnlyList<RealDataService.HailEvent>? hailHistory = null,
+            IReadOnlyList<RealDataService.WindEvent>?  windHistory = null,
+            Data.Models.Org? org = null,
+            byte[]? logoBytes = null,
+            byte[]? mapBytes  = null)
+        {
+            // ── Branding resolution ───────────────────────────────────────
+            var companyName  = !string.IsNullOrWhiteSpace(org?.CompanyName)  ? org!.CompanyName!  : "StormLead Pro";
+            var companyPhone = org?.Phone;
+            var companyWeb   = !string.IsNullOrWhiteSpace(org?.Website)       ? org!.Website!      : "stormlead.pro";
+            var companyEmail = org?.CompanyEmail;
+            var tagline      = org?.Tagline;
+            var licenseNo    = org?.LicenseNumber;
+            var accentHex    = !string.IsNullOrWhiteSpace(org?.AccentColor)   ? org!.AccentColor!  : BrandOrange;
+
             var riskColor = lead.RiskLevel switch
             {
                 "High"   => "#ef4444",
@@ -59,8 +99,8 @@ namespace RoofingLeadGeneration.Services
                     {
                         header.Background(NavyDark).Padding(0).Column(col =>
                         {
-                            // Orange accent strip
-                            col.Item().Background(BrandOrange).Height(6);
+                            // Accent strip — uses org color
+                            col.Item().Background(accentHex).Height(6);
 
                             col.Item().Padding(28).Row(row =>
                             {
@@ -71,15 +111,20 @@ namespace RoofingLeadGeneration.Services
                                     inner.Item().Text("Informational Property Assessment")
                                         .FontSize(11).FontColor(SlateLight);
                                 });
+
+                                // Right side: logo image if available, else company name text
                                 row.ConstantItem(160).AlignRight().AlignMiddle().Column(inner =>
                                 {
-                                    inner.Item().AlignRight().Text("Storm")
-                                        .FontSize(18).Bold().FontColor(White);
-                                    inner.Item().AlignRight().Text(t =>
+                                    if (logoBytes != null && logoBytes.Length > 0)
                                     {
-                                        t.Span("Lead").FontColor(BrandOrange).FontSize(18).Bold();
-                                        t.Span(" Pro").FontColor(White).FontSize(18).Bold();
-                                    });
+                                        inner.Item().AlignRight().Height(48)
+                                            .Image(logoBytes).FitHeight();
+                                    }
+                                    else
+                                    {
+                                        inner.Item().AlignRight().Text(companyName)
+                                            .FontSize(15).Bold().FontColor(White);
+                                    }
                                 });
                             });
                         });
@@ -92,18 +137,29 @@ namespace RoofingLeadGeneration.Services
 
                         // ── Property address card ────────────────────────
                         col.Item().Background("#f8fafc").Border(1).BorderColor("#e2e8f0")
-                            .Padding(20).Column(inner =>
+                            .Row(row =>
                         {
-                            inner.Item().Text("PROPERTY ADDRESS")
-                                .FontSize(9).Bold().FontColor(SlateLight)
-                                .LetterSpacing(0.08f);
-                            inner.Item().PaddingTop(6).Text(lead.Address)
-                                .FontSize(16).Bold().FontColor(NavyDark);
-                            if (lead.Lat.HasValue && lead.Lng.HasValue)
+                            // Address info (left)
+                            row.RelativeItem().Padding(20).Column(inner =>
                             {
-                                inner.Item().PaddingTop(4).Text(
-                                    $"GPS: {lead.Lat:F5}, {lead.Lng:F5}")
-                                    .FontSize(9).FontColor(SlateLight);
+                                inner.Item().Text("PROPERTY ADDRESS")
+                                    .FontSize(9).Bold().FontColor(SlateLight)
+                                    .LetterSpacing(0.08f);
+                                inner.Item().PaddingTop(6).Text(lead.Address)
+                                    .FontSize(16).Bold().FontColor(NavyDark);
+                                if (lead.Lat.HasValue && lead.Lng.HasValue)
+                                {
+                                    inner.Item().PaddingTop(4).Text(
+                                        $"GPS: {lead.Lat:F5}, {lead.Lng:F5}")
+                                        .FontSize(9).FontColor(SlateLight);
+                                }
+                            });
+
+                            // Map image (right) — only shown when available
+                            if (mapBytes != null && mapBytes.Length > 0)
+                            {
+                                row.ConstantItem(220).Height(110)
+                                    .Image(mapBytes).FitArea();
                             }
                         });
 
@@ -191,6 +247,120 @@ namespace RoofingLeadGeneration.Services
                                 .FontSize(9).FontColor(SlateText).LineHeight(1.5f);
                         });
 
+                        // ── Storm History — hail events table ────────────
+                        if (hailHistory != null && hailHistory.Count > 0)
+                        {
+                            col.Item().Column(inner =>
+                            {
+                                inner.Item().Text("STORM HISTORY — LAST 5 YEARS")
+                                    .FontSize(9).Bold().FontColor(SlateLight)
+                                    .LetterSpacing(0.08f);
+                                inner.Item().PaddingTop(2).Text(
+                                    $"{hailHistory.Count} hail event{(hailHistory.Count == 1 ? "" : "s")} recorded within 2 miles of this property.")
+                                    .FontSize(9).FontColor(SlateText);
+
+                                inner.Item().PaddingTop(8).Table(table =>
+                                {
+                                    table.ColumnsDefinition(cols =>
+                                    {
+                                        cols.RelativeColumn(3);  // Date
+                                        cols.RelativeColumn(2);  // Size
+                                        cols.RelativeColumn(3);  // Reference
+                                        cols.RelativeColumn(2);  // Source
+                                    });
+
+                                    table.Header(h =>
+                                    {
+                                        static void HdrCell(IContainer c, string text) =>
+                                            c.Background("#e2e8f0").Padding(5)
+                                             .Text(text).FontSize(8).Bold().FontColor("#475569");
+
+                                        HdrCell(h.Cell(), "Date");
+                                        HdrCell(h.Cell(), "Hail Size");
+                                        HdrCell(h.Cell(), "Size Reference");
+                                        HdrCell(h.Cell(), "Source");
+                                    });
+
+                                    for (int i = 0; i < hailHistory.Count; i++)
+                                    {
+                                        var e  = hailHistory[i];
+                                        var bg = i % 2 == 0 ? White : "#f8fafc";
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(e.Date.ToString("MMM d, yyyy"))
+                                            .FontSize(9).FontColor(NavyDark);
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text($"{e.SizeInches:F2}\"")
+                                            .FontSize(9).Bold().FontColor(BrandOrange);
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(HailSizeReference(e.SizeInches))
+                                            .FontSize(9).FontColor(SlateText);
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(FormatSource(e.Source))
+                                            .FontSize(8).FontColor(SlateLight);
+                                    }
+                                });
+                            });
+                        }
+                        else if (hailHistory != null)
+                        {
+                            col.Item().Column(inner =>
+                            {
+                                inner.Item().Text("STORM HISTORY — LAST 5 YEARS")
+                                    .FontSize(9).Bold().FontColor(SlateLight)
+                                    .LetterSpacing(0.08f);
+                                inner.Item().PaddingTop(4).Text(
+                                    "No hail events were found within 2 miles of this property in the last 5 years.")
+                                    .FontSize(9).FontColor(SlateText).Italic();
+                            });
+                        }
+
+                        // ── Wind History ─────────────────────────────────
+                        if (windHistory != null && windHistory.Count > 0)
+                        {
+                            col.Item().Column(inner =>
+                            {
+                                inner.Item().Text("WIND EVENTS — LAST 12 MONTHS")
+                                    .FontSize(9).Bold().FontColor(SlateLight)
+                                    .LetterSpacing(0.08f);
+
+                                inner.Item().PaddingTop(8).Table(table =>
+                                {
+                                    table.ColumnsDefinition(cols =>
+                                    {
+                                        cols.RelativeColumn(4);  // Date
+                                        cols.RelativeColumn(3);  // Speed
+                                        cols.RelativeColumn(3);  // Source
+                                    });
+
+                                    table.Header(h =>
+                                    {
+                                        static void HdrCell(IContainer c, string text) =>
+                                            c.Background("#e2e8f0").Padding(5)
+                                             .Text(text).FontSize(8).Bold().FontColor("#475569");
+
+                                        HdrCell(h.Cell(), "Date");
+                                        HdrCell(h.Cell(), "Gust Speed");
+                                        HdrCell(h.Cell(), "Source");
+                                    });
+
+                                    for (int i = 0; i < windHistory.Count; i++)
+                                    {
+                                        var w  = windHistory[i];
+                                        var bg = i % 2 == 0 ? White : "#f8fafc";
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(w.Date.ToString("MMM d, yyyy"))
+                                            .FontSize(9).FontColor(NavyDark);
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text($"{(int)Math.Round(w.SpeedMph)} mph")
+                                            .FontSize(9).Bold().FontColor("#0ea5e9");
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(FormatSource(w.Source))
+                                            .FontSize(8).FontColor(SlateLight);
+                                    }
+                                });
+                            });
+                        }
+
                         // ── Disclaimer ───────────────────────────────────
                         col.Item().Background("#fef3c7").Border(1).BorderColor("#fcd34d")
                             .Padding(14).Column(inner =>
@@ -213,21 +383,27 @@ namespace RoofingLeadGeneration.Services
                     {
                         row.RelativeItem().Column(col =>
                         {
-                            col.Item().Text(t =>
-                            {
-                                t.Span("Storm").FontColor(White).FontSize(10).Bold();
-                                t.Span("Lead").FontColor(BrandOrange).FontSize(10).Bold();
-                                t.Span(" Pro").FontColor(White).FontSize(10).Bold();
-                            });
+                            col.Item().Text(companyName)
+                                .FontSize(10).Bold().FontColor(White);
+                            if (!string.IsNullOrWhiteSpace(tagline))
+                                col.Item().PaddingTop(1).Text(tagline)
+                                    .FontSize(7).FontColor(SlateLight).Italic();
+                            if (!string.IsNullOrWhiteSpace(licenseNo))
+                                col.Item().PaddingTop(1).Text($"Lic# {licenseNo}")
+                                    .FontSize(7).FontColor(SlateLight);
                             col.Item().PaddingTop(2).Text($"Generated {generatedOn}")
-                                .FontSize(8).FontColor(SlateLight);
+                                .FontSize(7).FontColor(SlateLight);
                         });
-                        row.ConstantItem(200).AlignRight().AlignMiddle().Column(col =>
+                        row.ConstantItem(220).AlignRight().AlignMiddle().Column(col =>
                         {
-                            col.Item().AlignRight().Text($"Prepared for: {generatedBy}")
-                                .FontSize(8).FontColor(SlateLight);
-                            col.Item().AlignRight().PaddingTop(2).Text("stormlead.pro")
-                                .FontSize(8).FontColor(BrandOrange);
+                            if (!string.IsNullOrWhiteSpace(companyPhone))
+                                col.Item().AlignRight().PaddingTop(2).Text(companyPhone)
+                                    .FontSize(8).FontColor(SlateLight);
+                            if (!string.IsNullOrWhiteSpace(companyEmail))
+                                col.Item().AlignRight().PaddingTop(1).Text(companyEmail)
+                                    .FontSize(7).FontColor(SlateLight);
+                            col.Item().AlignRight().PaddingTop(2).Text(companyWeb)
+                                .FontSize(8).FontColor(accentHex);
                         });
                     });
                 });

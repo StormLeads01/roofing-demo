@@ -1,0 +1,270 @@
+@model RoofingLeadGeneration.Data.Models.Org
+@{
+    Layout = null;
+    var accent = Model.AccentColor ?? "#f97316";
+}
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Company Profile — StormLead Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: {
+                navy:  { DEFAULT: '#0f172a', 700: '#1e293b', 600: '#334155', 500: '#475569' },
+                brand: { DEFAULT: '#f97316', dark: '#ea6c0a', light: '#fdba74' }
+            }}}
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body class="min-h-screen">
+
+<!-- ══ HEADER ══════════════════════════════════════════════════ -->
+<header class="sticky top-0 z-50 bg-navy border-b border-slate-700/60 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow">
+                <i class="fa-solid fa-house-chimney text-white text-sm"></i>
+            </div>
+            <span class="text-lg font-bold tracking-tight">Storm<span class="text-brand">Lead</span> Pro</span>
+        </div>
+        <nav class="hidden lg:flex items-center gap-6 text-sm text-slate-400">
+            <a href="/" class="hover:text-white transition-colors">Search</a>
+            <a href="/Leads/Saved" class="hover:text-white transition-colors">Saved Leads</a>
+            <a href="/Dashboard" class="hover:text-white transition-colors">Dashboard</a>
+            <a href="/Company/Settings" class="text-brand font-semibold">
+                <i class="fa-solid fa-building mr-1 text-xs"></i>Company
+            </a>
+        </nav>
+        <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/60 transition-colors">
+            <i class="fa-solid fa-bars text-lg"></i>
+        </button>
+    </div>
+</header>
+
+<!-- ══ PAGE ════════════════════════════════════════════════════ -->
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+
+    <!-- Page heading -->
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-white flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-brand/20 border border-brand/30 flex items-center justify-center">
+                <i class="fa-solid fa-building text-brand text-sm"></i>
+            </div>
+            Company Profile
+        </h1>
+        <p class="text-slate-400 text-sm mt-1 ml-12">Branding and contact info used on PDF reports</p>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="mb-6 flex items-center gap-2 text-green-300 text-sm bg-green-400/10 border border-green-400/20 rounded-xl px-4 py-3">
+            <i class="fa-solid fa-circle-check text-green-400"></i>
+            <span>@TempData["Success"]</span>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="mb-6 flex items-center gap-2 text-red-300 text-sm bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
+            <i class="fa-solid fa-triangle-exclamation text-red-400"></i>
+            <span>@TempData["Error"]</span>
+        </div>
+    }
+
+    <form method="post" enctype="multipart/form-data" action="/Company/Settings">
+        @Html.AntiForgeryToken()
+
+        <div class="space-y-6">
+
+            <!-- ── Logo ─────────────────────────────────────────────── -->
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-6">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
+                    <i class="fa-solid fa-image text-brand mr-2 text-xs"></i>Company Logo
+                </h2>
+                <div class="flex items-start gap-5">
+                    <!-- Preview -->
+                    <div id="logoPreview"
+                         class="w-24 h-24 rounded-xl bg-slate-900 border-2 border-dashed border-slate-600 flex items-center justify-center overflow-hidden shrink-0">
+                        @if (!string.IsNullOrWhiteSpace(Model.LogoPath))
+                        {
+                            <img src="@Model.LogoPath" alt="Company logo" class="w-full h-full object-contain p-1" id="logoImg" />
+                        }
+                        else
+                        {
+                            <i class="fa-solid fa-image text-slate-600 text-2xl" id="logoPlaceholder"></i>
+                        }
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs text-slate-400 mb-2">Upload logo (PNG, JPG, SVG — max 2 MB)</label>
+                        <input type="file" name="logoFile" id="logoFile" accept="image/*"
+                               onchange="previewLogo(this)"
+                               class="block w-full text-sm text-slate-400
+                                      file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
+                                      file:text-xs file:font-semibold file:bg-brand/20 file:text-brand
+                                      hover:file:bg-brand/30 file:transition-colors file:cursor-pointer" />
+                        @if (!string.IsNullOrWhiteSpace(Model.LogoPath))
+                        {
+                            <label class="flex items-center gap-2 mt-3 cursor-pointer text-xs text-slate-500 hover:text-red-400 transition-colors w-fit">
+                                <input type="checkbox" name="removeLogo" value="true" class="rounded" />
+                                Remove current logo
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Company info ──────────────────────────────────────── -->
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-6">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
+                    <i class="fa-solid fa-building text-brand mr-2 text-xs"></i>Company Info
+                </h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                    <div class="sm:col-span-2">
+                        @Html.Label("companyName", "Company name (shown on reports)", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="text" name="companyName" id="companyName"
+                               value="@Model.CompanyName"
+                               placeholder="Apex Roofing &amp; Restoration"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                    <div>
+                        @Html.Label("phone", "Phone", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="tel" name="phone" id="phone"
+                               value="@Model.Phone"
+                               placeholder="(555) 867-5309"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                    <div>
+                        @Html.Label("companyEmail", "Email", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="email" name="companyEmail" id="companyEmail"
+                               value="@Model.CompanyEmail"
+                               placeholder="info@apexroofing.com"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                    <div>
+                        @Html.Label("website", "Website", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="url" name="website" id="website"
+                               value="@Model.Website"
+                               placeholder="https://apexroofing.com"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                    <div>
+                        @Html.Label("licenseNumber", "License number", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="text" name="licenseNumber" id="licenseNumber"
+                               value="@Model.LicenseNumber"
+                               placeholder="TX-RC-12345"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        @Html.Label("tagline", "Tagline", new { @class = "block text-xs text-slate-400 mb-1.5" })
+                        <input type="text" name="tagline" id="tagline"
+                               value="@Model.Tagline"
+                               placeholder="Protecting families since 2005"
+                               class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-sm placeholder-slate-500
+                                      focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent transition" />
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ── Brand color ───────────────────────────────────────── -->
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-6">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
+                    <i class="fa-solid fa-palette text-brand mr-2 text-xs"></i>Brand color
+                </h2>
+                <div class="flex items-center gap-4">
+                    <input type="color" name="accentColor" id="accentColor"
+                           value="@accent"
+                           oninput="updateColorPreview(this.value)"
+                           class="w-12 h-12 rounded-xl border-2 border-slate-600 cursor-pointer bg-transparent p-0.5" />
+                    <div>
+                        <p class="text-white text-sm font-semibold" id="colorHex">@accent</p>
+                        <p class="text-slate-400 text-xs mt-0.5">Used as the header accent on PDF reports</p>
+                    </div>
+                    <div id="colorSwatch" class="ml-auto w-32 h-10 rounded-xl"
+                         style="background-color: @accent"></div>
+                </div>
+
+                <!-- Quick presets -->
+                <div class="flex flex-wrap gap-2 mt-4">
+                    @foreach (var (name, hex) in new[] {
+                        ("Storm Orange", "#f97316"), ("Sky Blue", "#0ea5e9"),
+                        ("Forest Green", "#22c55e"), ("Storm Red", "#ef4444"),
+                        ("Royal Purple", "#8b5cf6"), ("Slate", "#64748b")
+                    })
+                    {
+                        <button type="button"
+                                onclick="setColor('@hex')"
+                                title="@name"
+                                class="w-7 h-7 rounded-lg border-2 border-slate-700 hover:border-white transition-colors"
+                                style="background-color: @hex"></button>
+                    }
+                </div>
+            </div>
+
+            <!-- ── PDF preview note ──────────────────────────────────── -->
+            <div class="bg-slate-900/60 border border-slate-700/40 rounded-xl px-5 py-4 flex items-start gap-3">
+                <i class="fa-solid fa-file-pdf text-brand mt-0.5 text-sm"></i>
+                <div class="text-xs text-slate-400 leading-relaxed">
+                    Your company name, logo, phone, website, and brand color will appear on every hail damage
+                    PDF report you generate. License number and tagline are shown in the footer.
+                </div>
+            </div>
+
+            <!-- ── Save button ───────────────────────────────────────── -->
+            <div class="flex justify-end">
+                <button type="submit"
+                        class="flex items-center gap-2 px-6 py-3 rounded-xl bg-brand hover:bg-brand-dark
+                               text-white font-bold text-sm tracking-wide shadow-lg shadow-brand/30
+                               transition-all active:scale-95">
+                    <i class="fa-solid fa-floppy-disk"></i>Save Profile
+                </button>
+            </div>
+
+        </div>
+    </form>
+</div>
+
+<script>
+function previewLogo(input) {
+    if (!input.files || !input.files[0]) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var preview = document.getElementById('logoPreview');
+        preview.innerHTML = '<img src="' + e.target.result + '" class="w-full h-full object-contain p-1" />';
+    };
+    reader.readAsDataURL(input.files[0]);
+}
+
+function updateColorPreview(hex) {
+    document.getElementById('colorHex').textContent = hex;
+    document.getElementById('colorSwatch').style.backgroundColor = hex;
+}
+
+function setColor(hex) {
+    document.getElementById('accentColor').value = hex;
+    updateColorPreview(hex);
+}
+
+function toggleMobileMenu() {
+    var menu = document.getElementById('mobileMenu');
+    if (menu) menu.classList.toggle('hidden');
+}
+</script>
+</body>
+</html>

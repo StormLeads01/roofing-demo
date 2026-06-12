@@ -77,7 +77,16 @@ Tables: users, leads, enrichments, watched_areas, sent_alerts, orgs, org_credits
 - Regrid free trial restricted to 7 specific counties — enrichment returns null outside those
 - RealDataService registered as Singleton (fine; IHttpClientFactory is singleton-safe)
 - Leaflet loaded from CDNJS (cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/) — NOT unpkg (unpkg URL contains @ which conflicts with Razor @@ escaping)
-- dotnet CLI not available in the Cowork Linux sandbox — use static analysis (see dotnet-build-verify-SKILL.md)
+- dotnet CLI not available in the Cowork Linux sandbox — use static analysis (see .claude/dotnet-build-verify-SKILL.md)
+
+## Reference Docs
+All in `docs/` folder:
+- `technical-docs.md` — full technical documentation with Mermaid diagrams (architecture, data flows, DB schema, config reference)
+- `market-research.md` — competitor analysis, pricing benchmarks, pain points, GTM strategy (combined from two prior files)
+- `clue-research.md` — CLUE insurance claims data research
+- `resources.md` — API docs, third-party service links
+- `certified-hail-report-research.md` — NWD/HailTrace certified report research
+- `competitive-research-and-redesign-plan.md` — UI/UX competitive analysis
 
 ## Mobile Work Completed (April 2026)
 All three main views now have consistent hamburger nav + mobile drawer:

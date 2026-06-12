@@ -104,6 +104,9 @@
             <a href="/Help" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-circle-question mr-1 text-xs"></i>Help
             </a>
+            <a href="/Company/Settings" class="hover:text-white transition-colors">
+                <i class="fa-solid fa-building mr-1 text-xs"></i>Company
+            </a>
             @if ((User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "") == Configuration["AdminEmail"]) {
                 <a href="/Admin" class="text-orange-400 hover:text-orange-300 transition-colors text-xs">
                     <i class="fa-solid fa-shield-halved mr-1"></i>Admin
@@ -206,6 +209,21 @@
     <!-- Search form -->
     <div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
         <div class="bg-slate-800/80 backdrop-blur rounded-2xl shadow-2xl border border-slate-700/60 p-6 sm:p-8">
+
+            <!-- Mode toggle -->
+            <div class="flex items-center gap-1 mb-4 bg-slate-900/60 rounded-xl p-1 w-fit border border-slate-700/60">
+                <button id="modeNeighborhood" type="button"
+                    class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all
+                           bg-brand text-white shadow">
+                    <i class="fa-solid fa-house-chimney"></i>Neighborhood
+                </button>
+                <button id="modeSingle" type="button"
+                    class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all
+                           text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-crosshairs"></i>Single Address
+                </button>
+            </div>
+
             <div class="flex flex-col sm:flex-row gap-3">
 
                 <!-- Address input -->
@@ -222,8 +240,8 @@
                     />
                 </div>
 
-                <!-- Radius selector -->
-                <div class="relative">
+                <!-- Radius selector (hidden in single-address mode) -->
+                <div id="radiusWrapper" class="relative">
                     <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                         <i class="fa-solid fa-circle-dot text-slate-400 text-xs"></i>
                     </div>

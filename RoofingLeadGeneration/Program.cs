@@ -11,6 +11,7 @@ var config  = builder.Configuration;
 
 // ── MVC ───────────────────────────────────────────────────────────────────
 builder.Services.AddControllersWithViews();
+builder.Services.AddMemoryCache();
 
 // ── Database (EF Core + SQLite) ───────────────────────────────────────────
 var dbPath = Path.Combine(AppContext.BaseDirectory, "data", "leads.db");
@@ -102,7 +103,6 @@ builder.Services.AddSingleton<RealDataService>();
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton<HailReportService>();
 builder.Services.AddHostedService<StormAlertService>();
-builder.Services.AddScoped<LeadGenService>();
 
 // ── Pipeline ──────────────────────────────────────────────────────────────
 var app = builder.Build();
@@ -182,6 +182,16 @@ using (var scope = app.Services.CreateScope())
     }
     AddColumnIfMissing("watched_areas", "org_id",      "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
     AddColumnIfMissing("sent_alerts",   "org_id",      "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
+
+    // ── Org branding columns ──────────────────────────────────────────────
+    AddColumnIfMissing("orgs", "company_name",   "TEXT");
+    AddColumnIfMissing("orgs", "company_email",  "TEXT");
+    AddColumnIfMissing("orgs", "phone",          "TEXT");
+    AddColumnIfMissing("orgs", "website",        "TEXT");
+    AddColumnIfMissing("orgs", "accent_color",   "TEXT");
+    AddColumnIfMissing("orgs", "tagline",        "TEXT");
+    AddColumnIfMissing("orgs", "license_number", "TEXT");
+    AddColumnIfMissing("orgs", "logo_path",      "TEXT");
 
     if (!TableExists("orgs"))
     {
@@ -351,270 +361,6 @@ using (var scope = app.Services.CreateScope())
         cmd.ExecuteNonQuery();
         cmd.CommandText = "CREATE INDEX ix_org_credit_tx_created_at ON org_credit_transactions(created_at)";
         cmd.ExecuteNonQuery();
-    }
-
-    // ── LeadGen tables ───────────────────────────────────────────────
-    if (!TableExists("leadgen_campaigns"))
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE leadgen_campaigns (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                state_abbr       TEXT    NOT NULL,
-                storm_date       TEXT    NOT NULL,
-                hail_size_inches REAL    NOT NULL DEFAULT 0,
-                center_lat       REAL    NOT NULL DEFAULT 0,
-                center_lng       REAL    NOT NULL DEFAULT 0,
-                radius_miles     REAL    NOT NULL DEFAULT 0,
-                status           TEXT    NOT NULL DEFAULT 'draft',
-                total_sent       INTEGER NOT NULL DEFAULT 0,
-                total_responded  INTEGER NOT NULL DEFAULT 0,
-                created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
-                sent_at          TEXT,
-                notes            TEXT    NOT NULL DEFAULT ''
-            )
-        """;
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE INDEX ix_leadgen_campaigns_state  ON leadgen_campaigns(state_abbr)";
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE INDEX ix_leadgen_campaigns_date   ON leadgen_campaigns(storm_date)";
-        cmd.ExecuteNonQuery();
-    }
-
-    if (!TableExists("leadgen_leads"))
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE leadgen_leads (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                campaign_id      INTEGER NOT NULL REFERENCES leadgen_campaigns(id) ON DELETE CASCADE,
-                homeowner_phone  TEXT    NOT NULL,
-                homeowner_name   TEXT    NOT NULL DEFAULT '',
-                address          TEXT    NOT NULL DEFAULT '',
-                lat              REAL    NOT NULL DEFAULT 0,
-                lng              REAL    NOT NULL DEFAULT 0,
-                hail_size_inches REAL    NOT NULL DEFAULT 0,
-                storm_date       TEXT    NOT NULL DEFAULT '',
-                response_text    TEXT    NOT NULL DEFAULT '',
-                responded_at     TEXT    NOT NULL DEFAULT (datetime('now')),
-                status           TEXT    NOT NULL DEFAULT 'new',
-                created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
-            )
-        """;
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE UNIQUE INDEX ix_leadgen_leads_campaign_phone ON leadgen_leads(campaign_id, homeowner_phone)";
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE INDEX ix_leadgen_leads_status ON leadgen_leads(status)";
-        cmd.ExecuteNonQuery();
-    }
-
-    if (!TableExists("leadgen_suppressed"))
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE leadgen_suppressed (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone         TEXT    NOT NULL,
-                reason        TEXT    NOT NULL,
-                campaign_id   INTEGER REFERENCES leadgen_campaigns(id) ON DELETE SET NULL,
-                suppressed_at TEXT    NOT NULL DEFAULT (datetime('now'))
-            )
-        """;
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE UNIQUE INDEX ix_leadgen_suppressed_phone ON leadgen_suppressed(phone)";
-        cmd.ExecuteNonQuery();
-    }
-
-    if (!TableExists("leadgen_contact_history"))
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE leadgen_contact_history (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone        TEXT    NOT NULL,
-                campaign_id  INTEGER NOT NULL REFERENCES leadgen_campaigns(id) ON DELETE CASCADE,
-                sent_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-                dnc_checked  INTEGER NOT NULL DEFAULT 0,
-                dnc_clean    INTEGER NOT NULL DEFAULT 0,
-                responded    INTEGER NOT NULL DEFAULT 0,
-                response_text TEXT,
-                responded_at TEXT,
-                lead_id      INTEGER REFERENCES leadgen_leads(id) ON DELETE SET NULL
-            )
-        """;
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE UNIQUE INDEX ix_leadgen_contact_history_campaign_phone ON leadgen_contact_history(campaign_id, phone)";
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE INDEX ix_leadgen_contact_history_phone ON leadgen_contact_history(phone)";
-        cmd.ExecuteNonQuery();
-    }
-
-    if (!TableExists("leadgen_targets"))
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE leadgen_targets (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                campaign_id INTEGER NOT NULL REFERENCES leadgen_campaigns(id) ON DELETE CASCADE,
-                phone       TEXT    NOT NULL,
-                address     TEXT    NOT NULL DEFAULT '',
-                added_at    TEXT    NOT NULL DEFAULT (datetime('now'))
-            )
-        """;
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE UNIQUE INDEX ix_leadgen_targets_campaign_phone ON leadgen_targets(campaign_id, phone)";
-        cmd.ExecuteNonQuery();
-        cmd.CommandText = "CREATE INDEX ix_leadgen_targets_campaign_id ON leadgen_targets(campaign_id)";
-        cmd.ExecuteNonQuery();
-    }
-
-    // ── Seed demo user + leads ────────────────────────────────────────
-    var demoEmail = config["Auth:DemoEmail"] ?? "james@repwing.com";
-    long demoUserId = 0;
-    {
-        using var cmd = conn.CreateCommand();
-        // Find or create demo user
-        cmd.CommandText = "SELECT id FROM users WHERE provider='demo' AND provider_id='demo-user-1'";
-        var existing = cmd.ExecuteScalar();
-        if (existing == null)
-        {
-            cmd.CommandText = @"INSERT INTO users (provider, provider_id, email, display_name, is_admin, created_at)
-                                VALUES ('demo','demo-user-1',@e,'Demo User',0,datetime('now'))";
-            var p = cmd.CreateParameter(); p.ParameterName = "@e"; p.Value = demoEmail;
-            cmd.Parameters.Add(p);
-            cmd.ExecuteNonQuery();
-            cmd.CommandText = "SELECT last_insert_rowid()";
-            cmd.Parameters.Clear();
-            demoUserId = Convert.ToInt64(cmd.ExecuteScalar());
-        }
-        else
-        {
-            demoUserId = Convert.ToInt64(existing);
-        }
-
-        // ── Ensure demo user has an org ───────────────────────────────────
-        cmd.Parameters.Clear();
-        cmd.CommandText = "SELECT org_id FROM users WHERE id=@uid";
-        var pOrgCheck = cmd.CreateParameter(); pOrgCheck.ParameterName = "@uid"; pOrgCheck.Value = demoUserId;
-        cmd.Parameters.Add(pOrgCheck);
-        var existingOrgId = cmd.ExecuteScalar();
-
-        long demoOrgId = 0;
-        if (existingOrgId == null || existingOrgId == DBNull.Value)
-        {
-            // Create demo org
-            cmd.Parameters.Clear();
-            cmd.CommandText = @"INSERT INTO orgs (name, owner_id, plan, created_at)
-                                VALUES ('Demo Company', @uid, 'agency', datetime('now'))";
-            var pOwner = cmd.CreateParameter(); pOwner.ParameterName = "@uid"; pOwner.Value = demoUserId;
-            cmd.Parameters.Add(pOwner);
-            cmd.ExecuteNonQuery();
-
-            cmd.Parameters.Clear();
-            cmd.CommandText = "SELECT last_insert_rowid()";
-            demoOrgId = Convert.ToInt64(cmd.ExecuteScalar());
-
-            // Assign demo user to org as owner
-            cmd.CommandText = "UPDATE users SET org_id=@oid, org_role='owner' WHERE id=@uid";
-            var pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
-            var pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
-            cmd.Parameters.Add(pOid);
-            cmd.Parameters.Add(pUid2);
-            cmd.ExecuteNonQuery();
-
-            // Migrate existing leads / watched_areas / sent_alerts to the demo org
-            cmd.Parameters.Clear();
-            cmd.CommandText = "UPDATE leads SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
-            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
-            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
-            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
-            cmd.ExecuteNonQuery();
-
-            cmd.Parameters.Clear();
-            cmd.CommandText = "UPDATE watched_areas SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
-            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
-            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
-            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
-            cmd.ExecuteNonQuery();
-
-            cmd.Parameters.Clear();
-            cmd.CommandText = "UPDATE sent_alerts SET org_id=@oid WHERE user_id=@uid AND org_id IS NULL";
-            pOid = cmd.CreateParameter(); pOid.ParameterName = "@oid"; pOid.Value = demoOrgId;
-            pUid2 = cmd.CreateParameter(); pUid2.ParameterName = "@uid"; pUid2.Value = demoUserId;
-            cmd.Parameters.Add(pOid); cmd.Parameters.Add(pUid2);
-            cmd.ExecuteNonQuery();
-        }
-        else
-        {
-            demoOrgId = Convert.ToInt64(existingOrgId);
-        }
-
-        // ── Ensure demo org has credit rows ──────────────────────────────
-        cmd.Parameters.Clear();
-        foreach (var creditType in new[] { "enrichment", "sms", "search" })
-        {
-            cmd.Parameters.Clear();
-            cmd.CommandText = @"INSERT OR IGNORE INTO org_credits
-                (org_id, credit_type, balance, used_this_period, period_start, updated_at)
-                VALUES (@oid, @ct, @bal, 0, datetime('now'), datetime('now'))";
-            var pOidC  = cmd.CreateParameter(); pOidC.ParameterName  = "@oid"; pOidC.Value = demoOrgId;
-            var pCtC   = cmd.CreateParameter(); pCtC.ParameterName   = "@ct";  pCtC.Value  = creditType;
-            // Demo org gets a generous starting balance
-            var pBalC  = cmd.CreateParameter(); pBalC.ParameterName  = "@bal"; pBalC.Value =
-                creditType == "enrichment" ? 500 :
-                creditType == "sms"        ? 1000 : 250;
-            cmd.Parameters.Add(pOidC); cmd.Parameters.Add(pCtC); cmd.Parameters.Add(pBalC);
-            cmd.ExecuteNonQuery();
-        }
-
-        // Seed demo leads only if none exist yet for this user
-        cmd.Parameters.Clear();
-        cmd.CommandText = "SELECT COUNT(*) FROM leads WHERE user_id=@uid";
-        var pUid = cmd.CreateParameter(); pUid.ParameterName = "@uid"; pUid.Value = demoUserId;
-        cmd.Parameters.Add(pUid);
-        var leadCount = Convert.ToInt32(cmd.ExecuteScalar());
-
-        if (leadCount == 0)
-        {
-            var seedLeads = new[]
-            {
-                ("4521 Meadowbrook Dr, Fort Worth, TX 76103",  "High",   "2.00 inch",  "Michael Patterson", "(817) 555-0142", "mpatterson@email.com", 1885, "contacted"),
-                ("935 Magnolia Ave, Fort Worth, TX 76104",     "High",   "2.50 inch",  "Robert Dunham",     "(817) 555-0198", "",                     1972, "new"),
-                ("2817 Wayside Ave, Fort Worth, TX 76111",     "High",   "1.75 inch",  "Sarah Chen",        "(817) 555-0167", "s.chen@webmail.com",   2001, "quoted"),
-                ("7304 Brentwood Stair Rd, Fort Worth, TX 76112","Medium","1.25 inch", "David Okafor",      "",               "",                     1998, "new"),
-                ("6128 Malvey Ave, Fort Worth, TX 76116",      "Medium", "1.00 inch",  "",                  "",               "",                     2014, "new"),
-                ("3429 Hemphill St, Fort Worth, TX 76110",     "Low",    "0.75 inch",  "Linda Nguyen",      "(817) 555-0123", "",                     2008, "new"),
-            };
-
-            foreach (var (addr, risk, hail, owner, phone, email2, yearBuilt, status) in seedLeads)
-            {
-                cmd.Parameters.Clear();
-                cmd.CommandText = @"INSERT INTO leads
-                    (user_id, org_id, address, risk_level, hail_size, owner_name, owner_phone, owner_email,
-                     year_built, is_enriched, status, saved_at)
-                    VALUES (@uid,@oid,@addr,@risk,@hail,@owner,@phone,@email,@yr,@enriched,@status,datetime('now',@offset))";
-                var ps = new (string, object)[] {
-                    ("@uid",      demoUserId),
-                    ("@oid",      demoOrgId),
-                    ("@addr",     addr),
-                    ("@risk",     risk),
-                    ("@hail",     hail),
-                    ("@owner",    (object)(owner.Length > 0 ? owner : DBNull.Value)),
-                    ("@phone",    (object)(phone.Length  > 0 ? phone : DBNull.Value)),
-                    ("@email",    (object)(email2.Length > 0 ? email2: DBNull.Value)),
-                    ("@yr",       (object)yearBuilt),
-                    ("@enriched", (object)(owner.Length  > 0 ? 1 : 0)),
-                    ("@status",   status),
-                    ("@offset",   $"-{new Random().Next(1,30)} days"),
-                };
-                foreach (var (n, v) in ps)
-                {
-                    var pp = cmd.CreateParameter(); pp.ParameterName = n; pp.Value = v;
-                    cmd.Parameters.Add(pp);
-                }
-                cmd.ExecuteNonQuery();
-            }
-        }
     }
 
     conn.Close();

@@ -9,3 +9,4 @@ namespace RoofingLeadGeneration.Controllers
         public IActionResult Index() => View();
     }
 }
+ 

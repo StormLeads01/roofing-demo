@@ -7,7 +7,10 @@ let activeTab     = 'unenriched';   // 'unenriched' | 'pipeline' | 'closed' | 'a
 let selectedIds   = new Set();
 let editingId      = null;
 let editingNotesId = null;
-let viewingContactsId = null;
+let viewingContactsId  = null;
+let viewingStormHistoryId = null;
+let stormHistoryCache = {};   // id → {hail:[...], wind:[...]} or {error:'...'}
+let showWindIds = new Set();  // ids where wind panel is expanded
 let canEnrich     = false;   // set from /Leads/Stats — owners/managers only
 
 document.addEventListener('DOMContentLoaded', function() { loadLeads(); refreshTabCounts(); });
@@ -20,6 +23,8 @@ function switchLeadTab(tab) {
     editingId = null;
     editingNotesId = null;
     viewingContactsId = null;
+    viewingStormHistoryId = null;
+    showWindIds.clear();
 
     document.getElementById('tabUnenriched').classList.toggle('lead-tab-active', tab === 'unenriched');
     document.getElementById('tabPipeline').classList.toggle('lead-tab-active',  tab === 'pipeline');
@@ -449,13 +454,22 @@ function buildRow(lead) {
         : 'w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-brand border border-slate-600 transition';
     const penBtn = '<button onclick="' + (ed ? 'cancelEdit()' : 'startEdit(' + lead.id + ')') + '" class="' + penCls + '" title="' + (ed ? 'Cancel edit' : 'Edit contact') + '"><i class="fa-solid fa-pen text-xs"></i></button>';
 
+    // Storm history button — highlights when accordion is open
+    const stormHistOpen = viewingStormHistoryId === lead.id;
+    const stormBtnCls = stormHistOpen
+        ? 'w-7 h-7 rounded-lg flex items-center justify-center bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition'
+        : 'w-7 h-7 rounded-lg flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-cyan-400 border border-slate-600 transition';
+    const stormBtn = lead.lat
+        ? '<button onclick="toggleStormHistory(' + lead.id + ')" class="' + stormBtnCls + '" title="Storm history (5 years)"><i class="fa-solid fa-cloud-bolt text-xs"></i></button>'
+        : '';
+
     let ac;
     if (activeTab === 'unenriched') {
         const enrichBtn = canEnrich
             ? '<button onclick="enrichLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-orange-500/10 hover:bg-orange-500/30 text-orange-400 border border-orange-500/20 transition" title="Enrich"><i class="fa-solid fa-bolt text-xs"></i></button>'
             : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
-             enrichBtn + penBtn + notesBtn +
+             enrichBtn + penBtn + notesBtn + stormBtn +
              '<button onclick="archiveLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Archive"><i class="fa-solid fa-box-archive text-xs"></i></button></div>';
     } else if (activeTab === 'pipeline' || activeTab === 'closed') {
         const hasContacts = (lead.contacts && lead.contacts.length > 0);
@@ -472,13 +486,13 @@ function buildRow(lead) {
         ac = '<div class="flex items-center justify-center gap-1">' +
              '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></a>' +
-             penBtn + notesBtn + contactsBtn +
+             penBtn + notesBtn + stormBtn + contactsBtn +
              '<span class="w-7 h-7 flex items-center justify-center" title="Enriched leads are protected"><i class="fa-solid fa-shield-halved text-xs text-slate-600"></i></span></div>';
     } else {
         ac = '<div class="flex items-center justify-center gap-1">' +
              '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<button onclick="restoreLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/10 hover:bg-green-500/30 text-green-400 border border-green-500/20 transition" title="Restore to active"><i class="fa-solid fa-rotate-left text-xs"></i></button>' +
-             notesBtn + '</div>';
+             notesBtn + stormBtn + '</div>';
     }
 
     const statusCell = activeTab !== 'archived'
@@ -563,7 +577,7 @@ function buildRow(lead) {
         '</td>' +
         statusCell +
         '<td class="sticky-actions">' + ac + '</td></tr>' +
-        editExpRow + contactsExpRow + notesExpRow;
+        editExpRow + contactsExpRow + notesExpRow + buildStormHistoryExpRow(lead);
 }
 
 // ── Row actions ───────────────────────────────────────────────────
@@ -771,6 +785,20 @@ function buildMobileCard(lead) {
           '<i class="fa-solid fa-note-sticky mr-1.5"></i>' + (hasNotes ? 'Edit Note' : 'Add Note') + '</button>' +
           '</div>';
 
+    // Storm history section for mobile card
+    const mobileStormHistOpen = viewingStormHistoryId === lead.id;
+    const mobileStormBtnCls = mobileStormHistOpen
+        ? 'w-full py-2 rounded-xl bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition'
+        : 'w-full py-2 rounded-xl bg-slate-700/60 border border-slate-600/60 text-slate-400 text-xs font-semibold hover:bg-slate-700 transition';
+
+    var mobileStormSection = lead.lat
+        ? '<div class="mt-2 pt-2 border-t border-slate-700/60">' +
+          '<button onclick="toggleStormHistory(' + lead.id + ')" class="' + mobileStormBtnCls + '">' +
+          '<i class="fa-solid fa-cloud-bolt mr-1.5"></i>' + (mobileStormHistOpen ? 'Hide Storm History' : 'Storm History (5 yrs)') + '</button>' +
+          (mobileStormHistOpen ? buildMobileStormHistoryPanel(lead.id) : '') +
+          '</div>'
+        : '';
+
     var cardHtml = '<div class="bg-slate-800 border border-slate-700/60 rounded-2xl p-4 shadow-md" data-lead-id="' + lead.id + '">' +
         '<div class="flex items-start justify-between gap-2 mb-1">' +
         '<div class="flex-1 min-w-0">' +
@@ -784,9 +812,187 @@ function buildMobileCard(lead) {
         ((hailBit || dateBit || yearBit) ? '<div class="flex items-center gap-3 text-xs text-slate-400 mb-3 mt-2 flex-wrap">' + hailBit + dateBit + yearBit + '</div>' : '<div class="mb-3"></div>') +
         '<div class="flex gap-2 mb-3">' + phoneHtml + '</div>' +
         '<div class="flex items-center gap-2">' + actionBtns + '</div>' +
-        statusRow + notesSection +
+        statusRow + notesSection + mobileStormSection +
         '</div>';
     return cardHtml;
+}
+
+// ── Storm history helpers ─────────────────────────────────────────
+function toggleWindForLead(id) {
+    if (showWindIds.has(id)) showWindIds.delete(id); else showWindIds.add(id);
+    renderTable();
+}
+
+function buildMobileStormHistoryPanel(id) {
+    var cached = stormHistoryCache[id];
+    if (!cached) {
+        return '<div class="mt-2 flex items-center gap-2 text-slate-400 text-xs py-1">' +
+               '<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i><span>Loading…</span></div>';
+    }
+    if (cached.error) {
+        return '<p class="mt-2 text-red-400 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1"></i>' + escapeHtml(cached.error) + '</p>';
+    }
+    var hail = (cached.hail || []);
+    var wind = (cached.wind || []);
+    var showWind = showWindIds.has(id);
+
+    if (hail.length === 0 && wind.length === 0) {
+        return '<p class="mt-2 text-slate-500 text-xs italic">No storm events within 2 miles.</p>';
+    }
+
+    var hailRows = hail.slice(0, 20).map(function(e) {
+        var hl = hailLabel(e.sizeInches);
+        var sizeRef = hl ? ' <span class="' + hl.cls + '">(' + hl.label + ')</span>' : '';
+        return '<div class="flex items-center gap-2 py-1 border-b border-slate-700/40 last:border-0 text-xs">' +
+               '<i class="fa-solid fa-cloud-bolt text-orange-400 w-3 shrink-0"></i>' +
+               '<span class="w-20 shrink-0 text-slate-300 font-mono">' + escapeHtml(e.date) + '</span>' +
+               '<span class="text-orange-400 font-semibold">' + e.sizeInches.toFixed(2) + '"' + sizeRef + '</span>' +
+               '</div>';
+    }).join('');
+
+    var windRows = showWind ? wind.slice(0, 20).map(function(w) {
+        return '<div class="flex items-center gap-2 py-1 border-b border-slate-700/40 last:border-0 text-xs">' +
+               '<i class="fa-solid fa-wind text-sky-400 w-3 shrink-0"></i>' +
+               '<span class="w-20 shrink-0 text-slate-300 font-mono">' + escapeHtml(w.date) + '</span>' +
+               '<span class="text-sky-400 font-semibold">' + w.windMph + ' mph</span>' +
+               '</div>';
+    }).join('') : '';
+
+    var windBtn = wind.length > 0
+        ? '<button onclick="toggleWindForLead(' + id + ')" class="mt-2 text-xs px-2 py-1 rounded-lg border ' +
+          (showWind ? 'bg-sky-500/20 text-sky-300 border-sky-500/30' : 'bg-slate-700 text-slate-400 border-slate-600') +
+          '">' + (showWind ? 'Hide wind' : 'Show wind (' + wind.length + ')') + '</button>'
+        : '';
+
+    return '<div class="mt-2">' + hailRows + windRows + windBtn + '</div>';
+}
+
+// ── Storm history accordion ───────────────────────────────────────
+async function toggleStormHistory(id) {
+    if (viewingStormHistoryId === id) {
+        viewingStormHistoryId = null;
+        renderTable();
+        return;
+    }
+    viewingStormHistoryId = id;
+    renderTable(); // show loading spinner immediately
+
+    if (!stormHistoryCache[id]) {
+        var lead = allLeads.find(function(l) { return l.id === id; });
+        if (!lead) return;
+
+        // Try to parse a 2-letter US state code from the address string
+        var stateMatch = (lead.address || '').match(/\b([A-Z]{2})\b\s*\d{5}/);
+        var state = stateMatch ? stateMatch[1] : '';
+
+        var url = '/RoofHealth/StormHistory?lat=' + lead.lat + '&lng=' + lead.lng;
+        if (state) url += '&state=' + encodeURIComponent(state);
+
+        try {
+            var resp = await fetch(url);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            stormHistoryCache[id] = await resp.json();
+        } catch (e) {
+            stormHistoryCache[id] = { error: e.message };
+        }
+        renderTable(); // re-render with loaded data
+    }
+}
+
+function buildStormHistoryExpRow(lead) {
+    if (viewingStormHistoryId !== lead.id) return '';
+
+    var innerHtml = '';
+    var cached = stormHistoryCache[lead.id];
+    var closeBtn = '<button onclick="toggleStormHistory(' + lead.id + ')" class="text-xs text-slate-500 hover:text-slate-300 transition" title="Close"><i class="fa-solid fa-xmark"></i></button>';
+
+    if (!cached) {
+        innerHtml = '<div class="flex items-center gap-2 text-slate-400 text-sm py-1">' +
+                    '<i class="fa-solid fa-spinner fa-spin text-cyan-400 text-xs"></i>' +
+                    '<span>Loading storm history…</span></div>';
+    } else if (cached.error) {
+        innerHtml = '<div class="flex items-center justify-between">' +
+                    '<span class="text-red-400 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>Failed to load: ' + escapeHtml(cached.error) + '</span>' + closeBtn + '</div>';
+    } else {
+        var hail = cached.hail || [];
+        var wind = cached.wind || [];
+        var showWind = showWindIds.has(lead.id);
+
+        // ── Header bar ─────────────────────────────────────────────────
+        var hailLabel2 = hail.length + ' hail event' + (hail.length !== 1 ? 's' : '') + ' (5 yr)';
+        var windToggleBtn = wind.length > 0
+            ? '<button onclick="toggleWindForLead(' + lead.id + ')" class="px-2 py-0.5 rounded-lg text-xs border transition ' +
+              (showWind ? 'bg-sky-500/20 text-sky-300 border-sky-500/30 hover:bg-sky-500/30'
+                        : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600 hover:text-sky-400') + '">' +
+              '<i class="fa-solid fa-wind mr-1"></i>' + (showWind ? 'Hide wind' : 'Wind (' + wind.length + ')') +
+              '</button>'
+            : '';
+
+        var headerBar = '<div class="flex items-center justify-between mb-2 gap-2">' +
+                        '<div class="flex items-center gap-2">' +
+                        '<span class="text-xs font-semibold text-cyan-400 uppercase tracking-wide">' +
+                        '<i class="fa-solid fa-cloud-bolt mr-1.5"></i>' + hailLabel2 + '</span>' +
+                        windToggleBtn + '</div>' + closeBtn + '</div>';
+
+        if (hail.length === 0 && !showWind) {
+            innerHtml = headerBar +
+                        '<p class="text-slate-500 text-xs italic"><i class="fa-solid fa-cloud-sun mr-1"></i>' +
+                        'No hail events found within 2 miles in the last 5 years.' +
+                        (wind.length > 0 ? ' Wind data available — click Wind to view.' : '') + '</p>';
+        } else {
+            var srcBadge = function(src) {
+                return src === 'lsr'
+                    ? '<span class="px-1.5 py-0.5 rounded text-xs bg-green-500/15 text-green-400 border border-green-500/20">LSR</span>'
+                    : src === 'tomorrow'
+                    ? '<span class="px-1.5 py-0.5 rounded text-xs bg-violet-500/15 text-violet-400 border border-violet-500/20">Tomorrow.io</span>'
+                    : src === 'lsr-wind'
+                    ? '<span class="px-1.5 py-0.5 rounded text-xs bg-sky-500/15 text-sky-400 border border-sky-500/20">LSR</span>'
+                    : '<span class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 border border-slate-600">NOAA</span>';
+            };
+
+            // ── Stats summary bar ──────────────────────────────────────────
+            var peakHail  = hail.length > 0 ? Math.max.apply(null, hail.map(function(e){ return e.sizeInches; })) : null;
+            var peakWind  = wind.length > 0 ? Math.max.apply(null, wind.map(function(w){ return w.windMph; })) : null;
+            var statsBar  = '<div class="flex flex-wrap gap-3 mb-3 mt-1">';
+            statsBar += '<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs">' +
+                        '<i class="fa-solid fa-cloud-bolt text-orange-400"></i>' +
+                        '<span class="text-slate-400">Events:</span> <span class="text-orange-300 font-bold">' + hail.length + '</span></div>';
+            if (peakHail !== null) {
+                statsBar += '<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs">' +
+                            '<i class="fa-solid fa-ruler text-orange-400"></i>' +
+                            '<span class="text-slate-400">Peak hail:</span> <span class="text-orange-300 font-bold">' + peakHail.toFixed(2) + '"</span></div>';
+            }
+            if (peakWind !== null) {
+                statsBar += '<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-xs">' +
+                            '<i class="fa-solid fa-wind text-sky-400"></i>' +
+                            '<span class="text-slate-400">Peak wind:</span> <span class="text-sky-300 font-bold">' + peakWind + ' mph</span></div>';
+            }
+            statsBar += '</div>';
+
+            var hailRows = hail.map(function(e) {
+                var hl = hailLabel(e.sizeInches);
+                var sizeRef = hl ? ' <span class="' + hl.cls + ' text-xs">(' + hl.label + ')</span>' : '';
+                return '<div class="flex items-center gap-3 py-1.5 border-b border-slate-700/40 last:border-0">' +
+                       '<i class="fa-solid fa-cloud-bolt text-orange-400 text-xs w-3 shrink-0"></i>' +
+                       '<span class="w-24 shrink-0 text-slate-300 font-mono text-xs">' + escapeHtml(e.date) + '</span>' +
+                       '<span class="w-28 shrink-0 text-orange-400 font-semibold text-xs">' + e.sizeInches.toFixed(2) + '"' + sizeRef + '</span>' +
+                       srcBadge(e.source) + '</div>';
+            }).join('');
+
+            var windRows = showWind ? wind.map(function(w) {
+                return '<div class="flex items-center gap-3 py-1.5 border-b border-slate-700/40 last:border-0">' +
+                       '<i class="fa-solid fa-wind text-sky-400 text-xs w-3 shrink-0"></i>' +
+                       '<span class="w-24 shrink-0 text-slate-300 font-mono text-xs">' + escapeHtml(w.date) + '</span>' +
+                       '<span class="w-28 shrink-0 text-sky-400 font-semibold text-xs">' + w.windMph + ' mph gusts</span>' +
+                       srcBadge(w.source) + '</div>';
+            }).join('') : '';
+
+            innerHtml = headerBar + statsBar + hailRows + windRows;
+        }
+    }
+
+    return '<tr class="notes-row" data-storm-history-for="' + lead.id + '">' +
+           '<td colspan="7" class="notes-row-cell">' + innerHtml + '</td></tr>';
 }
 
 // ── Mobile nav ────────────────────────────────────────────────────

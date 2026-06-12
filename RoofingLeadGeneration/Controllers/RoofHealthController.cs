@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using RoofingLeadGeneration.Services;
 using System.Net.Http;
 using System.Text;
@@ -13,6 +14,7 @@ namespace RoofingLeadGeneration.Controllers
     public class RoofHealthController : Controller
     {
         private readonly RealDataService              _realData;
+        private readonly IMemoryCache                 _cache;
         private readonly string                       _apiKey;
         private readonly string                       _tomorrowKey;
         private readonly IWebHostEnvironment          _env;
@@ -46,10 +48,12 @@ namespace RoofingLeadGeneration.Controllers
             return (int)Math.Round(years * 365.25);
         }
 
-        public RoofHealthController(RealDataService realData, IConfiguration config,
+        public RoofHealthController(RealDataService realData, IMemoryCache cache,
+                                    IConfiguration config,
                                     IWebHostEnvironment env, ILogger<RoofHealthController> logger)
         {
             _realData    = realData;
+            _cache       = cache;
             _env         = env;
             _logger      = logger;
             _apiKey      = config["GoogleMaps:ApiKey"] ?? throw new InvalidOperationException(
@@ -231,6 +235,84 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/SingleAddress?address=...&lat=...&lng=...
+        // Scores exactly one property — no OSM neighbour lookup.
+        // Returns the same JSON shape as Neighborhood for frontend compatibility.
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("SingleAddress")]
+        public async Task<IActionResult> SingleAddress(
+            string address, double lat = 0, double lng = 0)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return BadRequest(new { error = "Address is required." });
+
+            string formattedAddress = address;
+            string stateAbbr        = "";
+
+            if (lat == 0 || lng == 0)
+            {
+                var center = await GeocodeAsync(address);
+                if (center == null)
+                    return BadRequest(new { error = "Could not geocode the provided address." });
+                lat              = center.Lat;
+                lng              = center.Lng;
+                formattedAddress = center.FormattedAddress;
+                stateAbbr        = center.StateAbbr;
+            }
+
+            if (string.IsNullOrWhiteSpace(stateAbbr))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    formattedAddress, @"\b([A-Z]{2})\b\s*\d{5}");
+                if (m.Success) stateAbbr = m.Groups[1].Value;
+            }
+
+            // Fetch hail data only — no OSM neighbour scan
+            const double hailRadius = 2.0;
+            var cacheKey = $"hail:{Math.Round(lat, 1)}:{Math.Round(lng, 1)}:{stateAbbr}";
+            if (!_cache.TryGetValue(cacheKey, out List<RealDataService.HailEvent>? cachedHail) || cachedHail == null)
+            {
+                var swdiTask     = SafeSwdi(lat, lng, hailRadius);
+                var mesonetTask  = SafeLsr(lat, lng, hailRadius, stateAbbr);
+                var tomorrowTask = SafeTomorrow(lat, lng);
+                await Task.WhenAll(swdiTask, mesonetTask, tomorrowTask);
+
+                cachedHail = new List<RealDataService.HailEvent>();
+                cachedHail.AddRange(swdiTask.Result);
+                cachedHail.AddRange(mesonetTask.Result);
+                cachedHail.AddRange(tomorrowTask.Result);
+                _cache.Set(cacheKey, cachedHail, TimeSpan.FromMinutes(30));
+            }
+
+            var centerOsm = new RealDataService.OsmAddress
+            {
+                FullAddress = formattedAddress,
+                Lat         = lat,
+                Lng         = lng
+            };
+            var record = BuildRealRecord(centerOsm, cachedHail, stateAbbr);
+
+            var hailDtos = cachedHail.Select(e => new HailEventDto
+            {
+                Lat        = Math.Round(e.Lat, 6),
+                Lng        = Math.Round(e.Lng, 6),
+                SizeInches = Math.Round(e.SizeInches, 2),
+                Date       = e.Date.ToString("yyyy-MM-dd"),
+                Source     = e.Source
+            }).ToList();
+
+            return Json(
+                new { centerAddress = formattedAddress, lat, lng,
+                      hailEventCount = cachedHail.Count, hailEvents = hailDtos,
+                      osmCount = 1, properties = new[] { record } },
+                new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented        = false
+                });
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // GET /RoofHealth/Export?address=...&radius=0.5
         // ─────────────────────────────────────────────────────────────────
         [HttpGet("Export")]
@@ -303,6 +385,99 @@ namespace RoofingLeadGeneration.Controllers
             catch (Exception ex) { _logger.LogError(ex, "OSM fetch failed"); return new(); }
         }
 
+        private async Task<List<RealDataService.HailEvent>> SafeStormEvents(double lat, double lng, double r, string state)
+        {
+            if (string.IsNullOrWhiteSpace(state)) return new();
+            try   { return await _realData.GetStormEventsHailAsync(lat, lng, r, state); }
+            catch (Exception ex) { _logger.LogError(ex, "StormEvents history fetch failed"); return new(); }
+        }
+        private async Task<List<RealDataService.WindEvent>> SafeWindHistory(double lat, double lng, double r, string state)
+        {
+            if (string.IsNullOrWhiteSpace(state)) return new();
+            try   { return await _realData.GetMesonetLsrWindAsync(lat, lng, r, state, lookbackDays: 365); }
+            catch (Exception ex) { _logger.LogError(ex, "Wind history fetch failed"); return new(); }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/StormHistory?lat=...&lng=...&state=TX
+        // Returns hail events (5 years) and wind events (1 year) within 2 miles,
+        // deduplicated to one event per calendar day. State is auto-detected via
+        // Nominatim reverse-geocode if not supplied by the caller.
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("StormHistory")]
+        public async Task<IActionResult> StormHistory(double lat, double lng, string state = "")
+        {
+            if (lat == 0 && lng == 0)
+                return BadRequest(new { error = "lat and lng are required." });
+
+            // Auto-detect state when caller doesn't supply one — required for LSR and StormEvents
+            var stateAbbr = (state ?? "").Trim().ToUpperInvariant();
+            if (stateAbbr.Length != 2)
+                stateAbbr = await _realData.GetStateFromLatLngAsync(lat, lng);
+
+            var cacheKey = $"stormhist:{Math.Round(lat, 3)}:{Math.Round(lng, 3)}:{stateAbbr}";
+            if (_cache.TryGetValue(cacheKey, out StormHistoryResult? cached) && cached != null)
+                return Json(cached, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+            // Use a wider fetch radius so SWDI radar-pixel offsets don't exclude nearby hits,
+            // then filter down to 2 miles for display.
+            const double fetchRadius   = 10.0;
+            const double displayRadius = 2.0;
+
+            var swdiTask        = SafeSwdi(lat, lng, fetchRadius);
+            var lsrTask         = SafeLsr(lat, lng, fetchRadius, stateAbbr);
+            var stormEventsTask = SafeStormEvents(lat, lng, fetchRadius, stateAbbr);
+            var windTask        = SafeWindHistory(lat, lng, fetchRadius, stateAbbr);
+
+            await Task.WhenAll(swdiTask, lsrTask, stormEventsTask, windTask);
+
+            var fiveYearsAgo = DateTime.UtcNow.AddYears(-5);
+            var oneYearAgo   = DateTime.UtcNow.AddYears(-1);
+
+            // ── Hail — 5 years, deduplicated per calendar day ────────────
+            var allHail = new List<RealDataService.HailEvent>();
+            allHail.AddRange(swdiTask.Result);
+            allHail.AddRange(lsrTask.Result);
+            allHail.AddRange(stormEventsTask.Result);
+
+            var hailList = allHail
+                .Where(e => e.Date >= fiveYearsAgo &&
+                            RealDataService.HaversineDistanceMiles(lat, lng, e.Lat, e.Lng) <= displayRadius)
+                .GroupBy(e => e.Date.Date)
+                .Select(g => g.OrderByDescending(e => e.SizeInches).First())
+                .OrderByDescending(e => e.Date)
+                .Select(e => new StormHistoryHailDto
+                {
+                    Date       = e.Date.ToString("yyyy-MM-dd"),
+                    SizeInches = Math.Round(e.SizeInches, 2),
+                    Source     = e.Source
+                })
+                .ToList();
+
+            // ── Wind — 1 year, deduplicated per calendar day ─────────────
+            var windList = windTask.Result
+                .Where(w => w.Date >= oneYearAgo &&
+                            RealDataService.HaversineDistanceMiles(lat, lng, w.Lat, w.Lng) <= displayRadius)
+                .GroupBy(w => w.Date.Date)
+                .Select(g => g.OrderByDescending(w => w.SpeedMph).First())
+                .OrderByDescending(w => w.Date)
+                .Select(w => new StormHistoryWindDto
+                {
+                    Date    = w.Date.ToString("yyyy-MM-dd"),
+                    WindMph = (int)Math.Round(w.SpeedMph),
+                    Source  = w.Source
+                })
+                .ToList();
+
+            var result = new StormHistoryResult { Hail = hailList, Wind = windList };
+            _cache.Set(cacheKey, result, TimeSpan.FromHours(2));
+            _logger.LogInformation(
+                "StormHistory lat={Lat} lng={Lng} state={State} → {Hail} hail, {Wind} wind",
+                lat, lng, stateAbbr, hailList.Count, windList.Count);
+
+            return Json(result, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        }
+
         private async Task<(List<PropertyRecord> Records, int HailEventCount, List<HailEventDto> HailEvents)> GetPropertiesAsync(
             string centerAddress, double centerLat, double centerLng, double radiusMiles,
             string stateAbbr = "")
@@ -316,22 +491,42 @@ namespace RoofingLeadGeneration.Controllers
                 if (m.Success) stateAbbr = m.Groups[1].Value;
             }
 
-            // Run OSM, SWDI, Mesonet LSR, and Tomorrow.io fully in parallel —
-            // each wrapped so a failure in one source never blocks the others.
-            var osmTask      = SafeOsm(centerLat, centerLng, radiusMiles);
-            var swdiTask     = SafeSwdi(centerLat, centerLng, radiusMiles);
-            var mesonetTask  = SafeLsr(centerLat, centerLng, radiusMiles, stateAbbr);
-            var tomorrowTask = SafeTomorrow(centerLat, centerLng);
+            // ── Start OSM immediately so it runs in parallel with everything else ──
+            var osmTask = SafeOsm(centerLat, centerLng, radiusMiles);
 
-            await Task.WhenAll(osmTask, swdiTask, mesonetTask, tomorrowTask);
+            // ── Hail event cache ─────────────────────────────────────────────
+            // Weather data changes at most once per day — cache for 30 min.
+            // Key is snapped to a ~7-mile grid cell so adjacent addresses reuse
+            // the same cached data rather than firing a fresh round of API calls.
+            var cacheKey = $"hail:{Math.Round(centerLat, 1)}:{Math.Round(centerLng, 1)}:{stateAbbr}";
 
-            var osmAddresses = osmTask.Result;
+            if (!_cache.TryGetValue(cacheKey, out List<RealDataService.HailEvent>? cachedHail) || cachedHail == null)
+            {
+                // Fetch all hail sources in parallel — OSM is already running above
+                var swdiTask     = SafeSwdi(centerLat, centerLng, radiusMiles);
+                var mesonetTask  = SafeLsr(centerLat, centerLng, radiusMiles, stateAbbr);
+                var tomorrowTask = SafeTomorrow(centerLat, centerLng);
+
+                // Wait for hail AND OSM together so nothing serializes
+                await Task.WhenAll(osmTask, swdiTask, mesonetTask, tomorrowTask);
+
+                cachedHail = new List<RealDataService.HailEvent>();
+                cachedHail.AddRange(swdiTask.Result);
+                cachedHail.AddRange(mesonetTask.Result);
+                cachedHail.AddRange(tomorrowTask.Result);
+
+                _cache.Set(cacheKey, cachedHail, TimeSpan.FromMinutes(30));
+                _logger.LogInformation("Hail cache MISS for {Key} — fetched {Count} events", cacheKey, cachedHail.Count);
+            }
+            else
+            {
+                _logger.LogInformation("Hail cache HIT for {Key} — {Count} events", cacheKey, cachedHail.Count);
+            }
+
+            var osmAddresses = await osmTask;   // already done on cache miss; instant on cache hit
 
             // Merge all hail sources
-            var hailEvents = new List<RealDataService.HailEvent>();
-            hailEvents.AddRange(swdiTask.Result);
-            hailEvents.AddRange(mesonetTask.Result);
-            hailEvents.AddRange(tomorrowTask.Result);   // fills NOAA 120-day lag
+            var hailEvents = cachedHail;
 
             // Fallback: if OSM returned nothing (common in newer suburbs), use Google reverse-geocode grid
             if (osmAddresses.Count == 0)
@@ -926,6 +1121,24 @@ namespace RoofingLeadGeneration.Controllers
             [JsonPropertyName("sizeInches")] public double SizeInches { get; set; }
             [JsonPropertyName("date")]       public string Date       { get; set; } = "";
             [JsonPropertyName("source")]     public string Source     { get; set; } = "";
+        }
+
+        private class StormHistoryResult
+        {
+            [JsonPropertyName("hail")] public List<StormHistoryHailDto> Hail { get; set; } = new();
+            [JsonPropertyName("wind")] public List<StormHistoryWindDto> Wind { get; set; } = new();
+        }
+        private class StormHistoryHailDto
+        {
+            [JsonPropertyName("date")]       public string Date       { get; set; } = "";
+            [JsonPropertyName("sizeInches")] public double SizeInches { get; set; }
+            [JsonPropertyName("source")]     public string Source     { get; set; } = "";
+        }
+        private class StormHistoryWindDto
+        {
+            [JsonPropertyName("date")]    public string Date    { get; set; } = "";
+            [JsonPropertyName("windMph")] public int    WindMph { get; set; }
+            [JsonPropertyName("source")]  public string Source  { get; set; } = "";
         }
 
         private class StormClusterDto

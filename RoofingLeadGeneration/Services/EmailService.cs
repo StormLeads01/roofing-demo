@@ -23,7 +23,19 @@ namespace RoofingLeadGeneration.Services
             !string.IsNullOrWhiteSpace(_config["Email:SmtpHost"]) &&
             !string.IsNullOrWhiteSpace(_config["Email:FromAddress"]);
 
-        public async Task<bool> SendAsync(string toAddress, string subject, string htmlBody)
+        public Task<bool> SendAsync(string toAddress, string subject, string htmlBody)
+            => SendAsync(toAddress, subject, htmlBody, null, null);
+
+        /// <summary>
+        /// Sends an email with an optional binary attachment (e.g. a voicemail MP3).
+        /// Pass null for attachmentBytes to send without an attachment.
+        /// </summary>
+        public async Task<bool> SendAsync(
+            string  toAddress,
+            string  subject,
+            string  htmlBody,
+            byte[]? attachmentBytes,
+            string? attachmentFileName)
         {
             if (!IsConfigured)
             {
@@ -44,12 +56,28 @@ namespace RoofingLeadGeneration.Services
                 message.From.Add(new MailboxAddress(fromName, fromAddress));
                 message.To.Add(MailboxAddress.Parse(toAddress));
                 message.Subject = subject;
-                message.Body    = new TextPart("html") { Text = htmlBody };
+
+                var bodyPart = new TextPart("html") { Text = htmlBody };
+
+                if (attachmentBytes != null && !string.IsNullOrWhiteSpace(attachmentFileName))
+                {
+                    var attachment = new MimePart("audio", "mpeg")
+                    {
+                        Content            = new MimeContent(new System.IO.MemoryStream(attachmentBytes)),
+                        ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+                        ContentTransferEncoding = ContentEncoding.Base64,
+                        FileName           = attachmentFileName
+                    };
+
+                    message.Body = new Multipart("mixed") { bodyPart, attachment };
+                }
+                else
+                {
+                    message.Body = bodyPart;
+                }
 
                 using var client = new SmtpClient();
 
-                // Try STARTTLS first (port 587), fall back to implicit SSL (port 465),
-                // and finally plain (port 25 or when creds are absent)
                 var secureSocketOptions = port == 465
                     ? SecureSocketOptions.SslOnConnect
                     : SecureSocketOptions.StartTlsWhenAvailable;

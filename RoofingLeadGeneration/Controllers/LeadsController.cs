@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using System.IO;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
@@ -16,12 +17,14 @@ namespace RoofingLeadGeneration.Controllers
         private readonly AppDbContext        _db;
         private readonly IWebHostEnvironment _env;
         private readonly HailReportService   _reports;
+        private readonly RealDataService     _realData;
 
-        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports)
+        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports, RealDataService realData)
         {
-            _db      = db;
-            _env     = env;
-            _reports = reports;
+            _db       = db;
+            _env      = env;
+            _reports  = reports;
+            _realData = realData;
         }
 
         private long? CurrentUserId =>
@@ -212,8 +215,106 @@ namespace RoofingLeadGeneration.Controllers
 
             if (lead == null) return NotFound();
 
+            // Fetch storm history when we have coordinates
+            List<RealDataService.HailEvent>? hailHistory = null;
+            List<RealDataService.WindEvent>?  windHistory = null;
+
+            if (lead.Lat.HasValue && lead.Lng.HasValue)
+            {
+                var lat = lead.Lat.Value;
+                var lng = lead.Lng.Value;
+
+                // Auto-detect state for LSR queries
+                var stateAbbr = "";
+                if (!string.IsNullOrWhiteSpace(lead.Address))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(
+                        lead.Address, @"\b([A-Z]{2})\b\s*\d{5}");
+                    if (m.Success) stateAbbr = m.Groups[1].Value;
+                }
+                if (stateAbbr.Length != 2)
+                    stateAbbr = await _realData.GetStateFromLatLngAsync(lat, lng);
+
+                const double fetch   = 10.0;
+                const double display = 2.0;
+                var fiveYearsAgo = DateTime.UtcNow.AddYears(-5);
+                var oneYearAgo   = DateTime.UtcNow.AddYears(-1);
+
+                var swdiTask   = _realData.GetSwdiHailEventsAsync(lat, lng, fetch);
+                var lsrTask    = string.IsNullOrWhiteSpace(stateAbbr)
+                    ? Task.FromResult(new List<RealDataService.HailEvent>())
+                    : _realData.GetMesonetLsrHailAsync(lat, lng, fetch, stateAbbr);
+                var seTask     = string.IsNullOrWhiteSpace(stateAbbr)
+                    ? Task.FromResult(new List<RealDataService.HailEvent>())
+                    : _realData.GetStormEventsHailAsync(lat, lng, fetch, stateAbbr);
+                var windTask   = string.IsNullOrWhiteSpace(stateAbbr)
+                    ? Task.FromResult(new List<RealDataService.WindEvent>())
+                    : _realData.GetMesonetLsrWindAsync(lat, lng, fetch, stateAbbr, lookbackDays: 365);
+
+                try { await Task.WhenAll(swdiTask, lsrTask, seTask, windTask); } catch { /* partial results OK */ }
+
+                var allHail = new List<RealDataService.HailEvent>();
+                if (swdiTask.IsCompletedSuccessfully) allHail.AddRange(swdiTask.Result);
+                if (lsrTask.IsCompletedSuccessfully)  allHail.AddRange(lsrTask.Result);
+                if (seTask.IsCompletedSuccessfully)   allHail.AddRange(seTask.Result);
+
+                hailHistory = allHail
+                    .Where(e => e.Date >= fiveYearsAgo &&
+                                RealDataService.HaversineDistanceMiles(lat, lng, e.Lat, e.Lng) <= display)
+                    .GroupBy(e => e.Date.Date)
+                    .Select(g => g.OrderByDescending(e => e.SizeInches).First())
+                    .OrderByDescending(e => e.Date)
+                    .ToList();
+
+                if (windTask.IsCompletedSuccessfully)
+                    windHistory = windTask.Result
+                        .Where(w => w.Date >= oneYearAgo &&
+                                    RealDataService.HaversineDistanceMiles(lat, lng, w.Lat, w.Lng) <= display)
+                        .GroupBy(w => w.Date.Date)
+                        .Select(g => g.OrderByDescending(w => w.SpeedMph).First())
+                        .OrderByDescending(w => w.Date)
+                        .ToList();
+            }
+
+            // Load org branding
+            Data.Models.Org? org = null;
+            byte[]? logoBytes = null;
+            if (orgId.HasValue)
+            {
+                org = await _db.Orgs.FirstOrDefaultAsync(o => o.Id == orgId);
+                if (org != null && !string.IsNullOrWhiteSpace(org.LogoPath))
+                {
+                    var logoPath = Path.Combine(_env.WebRootPath, org.LogoPath.TrimStart('/'));
+                    if (System.IO.File.Exists(logoPath))
+                        logoBytes = await System.IO.File.ReadAllBytesAsync(logoPath);
+                }
+            }
+
+            // Fetch static map image for the property
+            byte[]? mapBytes = null;
+            if (lead.Lat.HasValue && lead.Lng.HasValue)
+            {
+                try
+                {
+                    var mapsKey = HttpContext.RequestServices
+                        .GetService<IConfiguration>()?["GoogleMaps:ApiKey"] ?? "";
+                    if (!string.IsNullOrWhiteSpace(mapsKey))
+                    {
+                        var mapUrl = $"https://maps.googleapis.com/maps/api/staticmap" +
+                            $"?center={lead.Lat:F6},{lead.Lng:F6}" +
+                            $"&zoom=16&size=480x260&maptype=roadmap" +
+                            $"&markers=color:red|{lead.Lat:F6},{lead.Lng:F6}" +
+                            $"&key={mapsKey}";
+                        using var http = new System.Net.Http.HttpClient();
+                        http.Timeout = TimeSpan.FromSeconds(8);
+                        mapBytes = await http.GetByteArrayAsync(mapUrl);
+                    }
+                }
+                catch { /* map is optional — don't fail PDF generation */ }
+            }
+
             var generatedBy = User.Identity?.Name ?? "StormLead Pro User";
-            var pdf         = _reports.Generate(lead, generatedBy);
+            var pdf         = _reports.Generate(lead, generatedBy, hailHistory, windHistory, org, logoBytes, mapBytes);
 
             var filename = $"HailReport-{lead.Id}-{DateTime.Now:yyyyMMdd}.pdf";
             return File(pdf, "application/pdf", filename);

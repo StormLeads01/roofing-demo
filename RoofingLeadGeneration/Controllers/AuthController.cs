@@ -29,13 +29,10 @@ namespace RoofingLeadGeneration.Controllers
             if (User.Identity?.IsAuthenticated == true) return Redirect(returnUrl ?? "/");
 
             var cfg = HttpContext.RequestServices.GetService<IConfiguration>();
-            var demoEnabled = string.Equals(cfg?["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
             ViewData["ReturnUrl"]        = returnUrl ?? "/";
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg?["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg?["Auth:Microsoft:ClientId"]);
-            ViewData["PasswordEnabled"]  = demoEnabled || !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
-            ViewData["DemoEmail"]        = demoEnabled ? cfg?["Auth:DemoEmail"] : null;
-            ViewData["DemoPassword"]     = demoEnabled ? cfg?["Auth:DemoPassword"] : null;
+            ViewData["PasswordEnabled"]  = !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
             return View();
         }
 
@@ -44,21 +41,8 @@ namespace RoofingLeadGeneration.Controllers
         public async Task<IActionResult> LoginPost(string email, string password, string? returnUrl = "/")
         {
             var cfg           = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var demoEnabled   = string.Equals(cfg["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
-            var demoEmail     = cfg["Auth:DemoEmail"]     ?? "";
-            var demoPassword  = cfg["Auth:DemoPassword"]  ?? "";
             var adminEmail    = cfg["Auth:AdminEmail"]    ?? "";
             var adminPassword = cfg["Auth:AdminPassword"] ?? "";
-
-            // Check demo credentials
-            if (demoEnabled &&
-                string.Equals(email, demoEmail, StringComparison.OrdinalIgnoreCase) &&
-                password == demoPassword)
-            {
-                var userId = await FindOrCreateUserAsync("demo", "demo-user-1", demoEmail, "Demo User");
-                await SignInUserAsync(userId, "demo", "demo-user-1", demoEmail, "Demo User");
-                return LocalRedirect(returnUrl ?? "/");
-            }
 
             // Check admin credentials
             if (!string.IsNullOrWhiteSpace(adminEmail) &&
@@ -74,8 +58,6 @@ namespace RoofingLeadGeneration.Controllers
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg["Auth:Microsoft:ClientId"]);
             ViewData["PasswordEnabled"]  = true;
-            ViewData["DemoEmail"]        = demoEnabled ? demoEmail : null;
-            ViewData["DemoPassword"]     = demoEnabled ? demoPassword : null;
             ViewData["LoginError"]       = "Invalid email or password.";
             return View("Login");
         }
@@ -122,22 +104,6 @@ namespace RoofingLeadGeneration.Controllers
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Redirect("/Auth/Login");
-        }
-
-        // ── GET /Auth/DemoLogin ─────────────────────────────────────
-        // One-click demo login — enabled when Auth:DemoEnabled = true in config
-        [HttpGet("DemoLogin")]
-        public async Task<IActionResult> DemoLogin(string? returnUrl = "/")
-        {
-            var cfg         = HttpContext.RequestServices.GetService<IConfiguration>();
-            var demoEnabled = string.Equals(cfg?["Auth:DemoEnabled"], "true", StringComparison.OrdinalIgnoreCase);
-            if (!demoEnabled && !_env.IsDevelopment()) return NotFound();
-
-            var demoEmail = cfg?["Auth:DemoEmail"] ?? "demo@stormlead.pro";
-            var userId = await FindOrCreateUserAsync("demo", "demo-user-1", demoEmail, "Demo User");
-            await SignInUserAsync(userId, "demo", "demo-user-1", demoEmail, "Demo User");
-            _logger.LogInformation("Demo account login (id={Id})", userId);
-            return LocalRedirect(returnUrl ?? "/");
         }
 
         // ── GET /Auth/DevLogin ──────────────────────────────────────
@@ -224,9 +190,9 @@ namespace RoofingLeadGeneration.Controllers
         private async Task SignInUserAsync(
             long userId, string provider, string providerId, string email, string name)
         {
-            var user = await _db.Users.FindAsync(userId);
-            var orgId   = user?.OrgId?.ToString()  ?? "";
-            var orgRole = user?.OrgRole             ?? "owner";
+            var user       = await _db.Users.FindAsync(userId);
+            var orgId      = user?.OrgId?.ToString()  ?? "";
+            var orgRole    = user?.OrgRole             ?? "owner";
 
             var claims = new List<Claim>
             {
@@ -236,7 +202,7 @@ namespace RoofingLeadGeneration.Controllers
                 new("provider",                provider),
                 new("user_db_id",              userId.ToString()),
                 new("user_org_id",             orgId),
-                new("user_org_role",           orgRole)
+                new("user_org_role",           orgRole),
             };
 
             var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

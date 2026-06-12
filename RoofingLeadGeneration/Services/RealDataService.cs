@@ -161,7 +161,7 @@ out center;";
             var cursor = start;
             while (cursor < end)
             {
-                var next = cursor.AddDays(30);
+                var next = cursor.AddDays(90);   // was 30 — 3× fewer NOAA calls (24→8)
                 if (next > end) next = end;
                 windows.Add((cursor, next));
                 cursor = next;
@@ -703,14 +703,19 @@ out center;";
                     double wLat = coordArr[1].GetDouble();
                     if (HaversineDistanceMiles(centerLat, centerLng, wLat, wLng) > filterMiles) continue;
 
-                    double? speedMph = GetDoubleField(props, "magnitude") ?? GetDoubleField(props, "magf");
+                    // LSR wind gust magnitude is in knots — convert to mph
+                    double? speedKnots = GetDoubleField(props, "magnitude") ?? GetDoubleField(props, "magf");
+                    double  speedMph   = (speedKnots ?? 0) * 1.15078;
+
+                    // Skip junk entries (< 25 mph) — real damaging gusts start around 25-30 mph
+                    if (speedMph < 25) continue;
 
                     DateTime date = DateTime.UtcNow.AddDays(-30);
                     if (props.TryGetProperty("valid", out var vt))
                         DateTime.TryParse(vt.GetString(), null,
                             System.Globalization.DateTimeStyles.RoundtripKind, out date);
 
-                    results.Add(new WindEvent(wLat, wLng, speedMph ?? 0, date, "lsr-wind"));
+                    results.Add(new WindEvent(wLat, wLng, speedMph, date, "lsr-wind"));
                 }
             }
             catch { }
