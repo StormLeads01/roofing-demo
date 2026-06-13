@@ -88,9 +88,6 @@
             <a href="/Alerts" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-bell mr-1 text-xs"></i>Alerts
             </a>
-            <a href="/Team" class="hover:text-white transition-colors">
-                <i class="fa-solid fa-users mr-1 text-xs"></i>Team
-            </a>
             <a href="/Help" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-circle-question mr-1 text-xs"></i>Help
             </a>
@@ -100,12 +97,7 @@
                 </a>
             }
             <span class="text-slate-600">|</span>
-            @if (User.Identity?.IsAuthenticated == true) {
-                <span class="text-slate-300 text-xs">
-                    <i class="fa-solid fa-circle-user mr-1 text-brand"></i>@User.Identity.Name
-                </span>
-                <a href="/Auth/Logout" class="text-slate-500 hover:text-slate-300 text-xs transition-colors">Sign out</a>
-            }
+            @await Html.PartialAsync("_AccountMenu")
         </nav>
 
         <button id="mobileMenuBtn" onclick="toggleMobileMenu()"
@@ -129,12 +121,7 @@
             <i class="fa-solid fa-bell w-4 text-center text-xs"></i>Alerts
         </a>
         <div class="border-t border-slate-700/60 my-1"></div>
-        @if (User.Identity?.IsAuthenticated == true) {
-            <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-slate-300 text-sm"><i class="fa-solid fa-circle-user mr-2 text-brand"></i>@User.Identity.Name</span>
-                <a href="/Auth/Logout" class="text-xs text-slate-500 hover:text-slate-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700/60">Sign out</a>
-            </div>
-        }
+        @await Html.PartialAsync("_AccountMenuMobile")
     </div>
 </header>
 

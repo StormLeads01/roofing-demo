@@ -100,14 +100,8 @@
             <a href="/Alerts" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-bell mr-1 text-xs"></i>Alerts
             </a>
-            <a href="/Team" class="hover:text-white transition-colors">
-                <i class="fa-solid fa-users mr-1 text-xs"></i>Team
-            </a>
             <a href="/Help" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-circle-question mr-1 text-xs"></i>Help
-            </a>
-            <a href="/Company/Settings" class="hover:text-white transition-colors">
-                <i class="fa-solid fa-building mr-1 text-xs"></i>Company
             </a>
             @if ((User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "") == Configuration["AdminEmail"]) {
                 <a href="/Admin" class="text-orange-400 hover:text-orange-300 transition-colors text-xs">
@@ -115,19 +109,7 @@
                 </a>
             }
             <span class="text-slate-600">|</span>
-            @if (User.Identity?.IsAuthenticated == true)
-            {
-                <span class="text-slate-300 text-xs">
-                    <i class="fa-solid fa-circle-user mr-1 text-brand"></i>@User.Identity.Name
-                </span>
-                <a href="/Auth/Logout" class="text-slate-500 hover:text-slate-300 text-xs transition-colors">Sign out</a>
-            }
-            else
-            {
-                <a href="/Auth/Login" class="px-3 py-1 rounded-full bg-brand/10 text-brand border border-brand/30 text-xs font-semibold hover:bg-brand/20 transition-colors">
-                    <i class="fa-solid fa-right-to-bracket mr-1"></i>Sign In
-                </a>
-            }
+            @await Html.PartialAsync("_AccountMenu")
         </nav>
 
         <!-- Hamburger (mobile only) -->
@@ -151,28 +133,11 @@
         <a href="/Alerts" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
             <i class="fa-solid fa-bell w-4 text-center text-xs"></i>Alerts
         </a>
-        <a href="/Team" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
-            <i class="fa-solid fa-users w-4 text-center text-xs"></i>Team
-        </a>
         <a href="/Help" class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors text-sm">
             <i class="fa-solid fa-circle-question w-4 text-center text-xs"></i>Help
         </a>
         <div class="border-t border-slate-700/60 my-1"></div>
-        @if (User.Identity?.IsAuthenticated == true)
-        {
-            <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-slate-300 text-sm">
-                    <i class="fa-solid fa-circle-user mr-2 text-brand"></i>@User.Identity.Name
-                </span>
-                <a href="/Auth/Logout" class="text-xs text-slate-500 hover:text-slate-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700/60">Sign out</a>
-            </div>
-        }
-        else
-        {
-            <a href="/Auth/Login" class="flex items-center gap-3 px-3 py-3 rounded-xl bg-brand/10 border border-brand/30 text-brand text-sm font-semibold">
-                <i class="fa-solid fa-right-to-bracket"></i>Sign In
-            </a>
-        }
+        @await Html.PartialAsync("_AccountMenuMobile")
     </div>
 </header>
 

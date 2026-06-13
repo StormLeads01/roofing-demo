@@ -46,10 +46,7 @@
                 <i class="fa-solid fa-shield-halved mr-1 text-xs"></i>Admin
             </a>
             <span class="text-slate-600">|</span>
-            @if (User.Identity?.IsAuthenticated == true) {
-                <span class="text-slate-300 text-xs"><i class="fa-solid fa-circle-user mr-1 text-brand"></i>@User.Identity.Name</span>
-                <a href="/Auth/Logout" class="text-slate-500 hover:text-slate-300 text-xs transition-colors">Sign out</a>
-            }
+            @await Html.PartialAsync("_AccountMenu")
         </nav>
     </div>
 </header>

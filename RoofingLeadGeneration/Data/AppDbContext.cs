@@ -41,6 +41,10 @@ namespace RoofingLeadGeneration.Data
                 e.Property(o => o.Tagline).HasColumnName("tagline");
                 e.Property(o => o.LicenseNumber).HasColumnName("license_number");
                 e.Property(o => o.LogoPath).HasColumnName("logo_path");
+                e.Property(o => o.Address).HasColumnName("address");
+                e.Property(o => o.FacebookUrl).HasColumnName("facebook_url");
+                e.Property(o => o.InstagramUrl).HasColumnName("instagram_url");
+                e.Property(o => o.GoogleBusinessUrl).HasColumnName("google_business_url");
 
                 e.HasOne(o => o.Owner)
                  .WithMany()
@@ -88,6 +92,8 @@ namespace RoofingLeadGeneration.Data
                 e.Property(u => u.OrgId).HasColumnName("org_id");
                 e.Property(u => u.OrgRole).HasColumnName("org_role").HasDefaultValue("owner");
                 e.Property(u => u.PasswordHash).HasColumnName("password_hash");
+                e.Property(u => u.Phone).HasColumnName("phone");
+                e.Property(u => u.NotificationEmail).HasColumnName("notification_email");
 
                 e.HasIndex(u => new { u.Provider, u.ProviderId }).IsUnique();
                 e.HasIndex(u => u.OrgId);

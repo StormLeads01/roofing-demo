@@ -26,6 +26,14 @@ namespace RoofingLeadGeneration.Data.Models
         /// <summary>Relative path to logo image, e.g. /uploads/logos/42.png</summary>
         public string? LogoPath       { get; set; }
 
+        // ── Additional company info ──────────────────────────────
+        /// <summary>Business mailing/physical address shown on Company Profile</summary>
+        public string? Address           { get; set; }
+        public string? FacebookUrl       { get; set; }
+        public string? InstagramUrl      { get; set; }
+        /// <summary>Link to Google Business Profile (great for reviews / local SEO)</summary>
+        public string? GoogleBusinessUrl { get; set; }
+
         public User?                    Owner   { get; set; }
         public ICollection<User>        Members { get; set; } = new List<User>();
         public ICollection<OrgInvite>   Invites { get; set; } = new List<OrgInvite>();

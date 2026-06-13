@@ -38,9 +38,7 @@
             </div>
             <span class="text-lg font-extrabold tracking-tight">Storm<span class="text-brand">Lead</span> Pro</span>
         </div>
-        <a href="/Auth/Logout" class="text-slate-400 hover:text-white text-sm transition-colors">
-            <i class="fa-solid fa-right-from-bracket mr-1"></i>Sign out
-        </a>
+        @await Html.PartialAsync("_AccountMenu")
     </div>
 </header>
 

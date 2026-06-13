@@ -151,6 +151,8 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("users", "org_id",              "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
     AddColumnIfMissing("users", "org_role",            "TEXT NOT NULL DEFAULT 'owner'");
     AddColumnIfMissing("users", "password_hash",       "TEXT");
+    AddColumnIfMissing("users", "phone",               "TEXT");
+    AddColumnIfMissing("users", "notification_email",  "TEXT");
     AddColumnIfMissing("leads", "year_built",          "INTEGER");
     AddColumnIfMissing("leads", "owner_name",          "TEXT");
     AddColumnIfMissing("leads", "owner_phone",         "TEXT");
@@ -200,6 +202,12 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("orgs", "license_number", "TEXT");
     AddColumnIfMissing("orgs", "logo_path",      "TEXT");
     AddColumnIfMissing("orgs", "trial_ends_at",  "TEXT");
+
+    // ── Org additional info (address & social links) ───────────────────────
+    AddColumnIfMissing("orgs", "address",             "TEXT");
+    AddColumnIfMissing("orgs", "facebook_url",        "TEXT");
+    AddColumnIfMissing("orgs", "instagram_url",       "TEXT");
+    AddColumnIfMissing("orgs", "google_business_url", "TEXT");
 
     if (!TableExists("orgs"))
     {

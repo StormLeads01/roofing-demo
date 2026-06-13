@@ -15,6 +15,12 @@ namespace RoofingLeadGeneration.Data.Models
         /// <summary>owner | manager | rep</summary>
         public string  OrgRole    { get; set; } = "owner";
 
+        // ── My Profile ───────────────────────────────────────────
+        /// <summary>Personal contact phone number, shown on My Profile</summary>
+        public string? Phone             { get; set; }
+        /// <summary>Email used for alert/notification delivery (may differ from login email)</summary>
+        public string? NotificationEmail { get; set; }
+
         public Org?                      Org          { get; set; }
         public ICollection<Lead>         Leads        { get; set; } = new List<Lead>();
         public ICollection<Enrichment>   Enrichments  { get; set; } = new List<Enrichment>();

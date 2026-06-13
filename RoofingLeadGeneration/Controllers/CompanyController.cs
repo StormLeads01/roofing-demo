@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
+using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
 {
@@ -12,16 +13,21 @@ namespace RoofingLeadGeneration.Controllers
         private readonly AppDbContext        _db;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<CompanyController> _logger;
+        private readonly string              _adminEmail;
 
         private long? CurrentOrgId =>
             long.TryParse(User.FindFirst("user_org_id")?.Value, out var id) ? id : null;
 
+        private bool IsAdmin() =>
+            (User.FindFirst(ClaimTypes.Email)?.Value ?? "") == _adminEmail;
+
         public CompanyController(AppDbContext db, IWebHostEnvironment env,
-                                 ILogger<CompanyController> logger)
+                                 ILogger<CompanyController> logger, IConfiguration config)
         {
-            _db     = db;
-            _env    = env;
-            _logger = logger;
+            _db         = db;
+            _env        = env;
+            _logger     = logger;
+            _adminEmail = config["AdminEmail"] ?? "";
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -36,6 +42,7 @@ namespace RoofingLeadGeneration.Controllers
             var org = await _db.Orgs.FirstOrDefaultAsync(o => o.Id == orgId);
             if (org == null) return RedirectToAction("Index", "Home");
 
+            ViewBag.IsAdmin = IsAdmin();
             return View(org);
         }
 
@@ -47,7 +54,8 @@ namespace RoofingLeadGeneration.Controllers
         public async Task<IActionResult> Settings(
             string? companyName, string? companyEmail, string? phone,
             string? website, string? accentColor, string? tagline,
-            string? licenseNumber, IFormFile? logoFile, string? removeLogo)
+            string? licenseNumber, IFormFile? logoFile, string? removeLogo,
+            string? address, string? facebookUrl, string? instagramUrl, string? googleBusinessUrl)
         {
             var orgId = CurrentOrgId;
             if (orgId == null) return RedirectToAction("Index", "Home");
@@ -61,6 +69,12 @@ namespace RoofingLeadGeneration.Controllers
             org.Website       = website?.Trim();
             org.Tagline       = tagline?.Trim();
             org.LicenseNumber = licenseNumber?.Trim();
+
+            // ── Additional company info ──────────────────────────────────
+            org.Address           = string.IsNullOrWhiteSpace(address)           ? null : address.Trim();
+            org.FacebookUrl       = string.IsNullOrWhiteSpace(facebookUrl)       ? null : facebookUrl.Trim();
+            org.InstagramUrl      = string.IsNullOrWhiteSpace(instagramUrl)      ? null : instagramUrl.Trim();
+            org.GoogleBusinessUrl = string.IsNullOrWhiteSpace(googleBusinessUrl) ? null : googleBusinessUrl.Trim();
 
             // Validate and set accent color
             if (!string.IsNullOrWhiteSpace(accentColor) &&
