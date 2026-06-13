@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
+using RoofingLeadGeneration.Filters;
 using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
 {
     [Route("[controller]")]
+    [SkipTrialGate]
     public class AdminController : Controller
     {
         private readonly AppDbContext _db;

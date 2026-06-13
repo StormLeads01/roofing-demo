@@ -1,14 +1,17 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
 using RoofingLeadGeneration.Data.Models;
+using RoofingLeadGeneration.Filters;
 using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
 {
     [Route("[controller]")]
+    [SkipTrialGate]
     public class AuthController : Controller
     {
         private readonly AppDbContext        _db;
@@ -32,7 +35,7 @@ namespace RoofingLeadGeneration.Controllers
             ViewData["ReturnUrl"]        = returnUrl ?? "/";
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg?["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg?["Auth:Microsoft:ClientId"]);
-            ViewData["PasswordEnabled"]  = !string.IsNullOrWhiteSpace(cfg?["Auth:AdminEmail"]);
+            ViewData["PasswordEnabled"]  = true;
             return View();
         }
 
@@ -44,7 +47,7 @@ namespace RoofingLeadGeneration.Controllers
             var adminEmail    = cfg["Auth:AdminEmail"]    ?? "";
             var adminPassword = cfg["Auth:AdminPassword"] ?? "";
 
-            // Check admin credentials
+            // Check admin credentials (config-based superuser)
             if (!string.IsNullOrWhiteSpace(adminEmail) &&
                 string.Equals(email, adminEmail, StringComparison.OrdinalIgnoreCase) &&
                 password == adminPassword)
@@ -54,12 +57,131 @@ namespace RoofingLeadGeneration.Controllers
                 return LocalRedirect(returnUrl ?? "/");
             }
 
+            // Check registered (signup) accounts with a stored password hash
+            var normalizedEmail = email.Trim().ToLowerInvariant();
+            var account = await _db.Users.FirstOrDefaultAsync(
+                u => u.Provider == "password" && u.ProviderId == normalizedEmail);
+
+            if (account != null && !string.IsNullOrEmpty(account.PasswordHash))
+            {
+                var verifyResult = new PasswordHasher<Data.Models.User>()
+                    .VerifyHashedPassword(account, account.PasswordHash, password);
+
+                if (verifyResult == PasswordVerificationResult.Success ||
+                    verifyResult == PasswordVerificationResult.SuccessRehashNeeded)
+                {
+                    await SignInUserAsync(account.Id, "password", normalizedEmail,
+                        account.Email ?? normalizedEmail, account.DisplayName ?? normalizedEmail);
+                    return LocalRedirect(returnUrl ?? "/");
+                }
+            }
+
             ViewData["ReturnUrl"]        = returnUrl ?? "/";
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg["Auth:Microsoft:ClientId"]);
             ViewData["PasswordEnabled"]  = true;
             ViewData["LoginError"]       = "Invalid email or password.";
             return View("Login");
+        }
+
+        // ── GET /Auth/Register ───────────────────────────────────────
+        [HttpGet("Register")]
+        public IActionResult Register(string? returnUrl = null)
+        {
+            if (User.Identity?.IsAuthenticated == true) return Redirect(returnUrl ?? "/");
+
+            ViewData["ReturnUrl"] = returnUrl ?? "/";
+            return View();
+        }
+
+        // ── POST /Auth/Register — create org + owner account ─────────
+        [HttpPost("Register")]
+        public async Task<IActionResult> RegisterPost(
+            string companyName, string name, string email, string password, string confirmPassword,
+            string? returnUrl = "/")
+        {
+            ViewData["ReturnUrl"]   = returnUrl ?? "/";
+            ViewData["CompanyName"] = companyName;
+            ViewData["Name"]        = name;
+            ViewData["Email"]       = email;
+
+            if (string.IsNullOrWhiteSpace(companyName) || string.IsNullOrWhiteSpace(name) ||
+                string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                ViewData["RegisterError"] = "Please fill in all fields.";
+                return View("Register");
+            }
+
+            if (password.Length < 8)
+            {
+                ViewData["RegisterError"] = "Password must be at least 8 characters.";
+                return View("Register");
+            }
+
+            if (password != confirmPassword)
+            {
+                ViewData["RegisterError"] = "Passwords don't match.";
+                return View("Register");
+            }
+
+            var normalizedEmail = email.Trim().ToLowerInvariant();
+            var existing = await _db.Users.FirstOrDefaultAsync(
+                u => u.Provider == "password" && u.ProviderId == normalizedEmail);
+            if (existing != null)
+            {
+                ViewData["RegisterError"] = "An account with that email already exists. Try signing in instead.";
+                return View("Register");
+            }
+
+            // Create the org first — new signups get a 7-day full-Pro trial
+            // with a capped enrichment allowance.
+            var trialEndsAt = DateTime.UtcNow.AddDays(7);
+            var org = new Data.Models.Org
+            {
+                Name        = companyName.Trim(),
+                CompanyName = companyName.Trim(),
+                Plan        = "pro",
+                TrialEndsAt = trialEndsAt,
+                CreatedAt   = DateTime.UtcNow
+            };
+            _db.Orgs.Add(org);
+            await _db.SaveChangesAsync(); // get org.Id
+
+            // Cap enrichments during the trial (full Pro otherwise)
+            _db.OrgCredits.Add(new Data.Models.OrgCredit
+            {
+                OrgId       = org.Id,
+                CreditType  = "enrichment",
+                Balance     = 25,
+                PeriodStart = DateTime.UtcNow,
+                PeriodEnd   = trialEndsAt,
+                UpdatedAt   = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+
+            // Create the owner account with a hashed password
+            var newUser = new Data.Models.User
+            {
+                Provider    = "password",
+                ProviderId  = normalizedEmail,
+                Email       = email.Trim(),
+                DisplayName = name.Trim(),
+                OrgId       = org.Id,
+                OrgRole     = "owner",
+                CreatedAt   = DateTime.UtcNow
+            };
+            newUser.PasswordHash = new PasswordHasher<Data.Models.User>().HashPassword(newUser, password);
+            _db.Users.Add(newUser);
+            await _db.SaveChangesAsync();
+
+            org.OwnerId = newUser.Id;
+            await _db.SaveChangesAsync();
+
+            await SignInUserAsync(newUser.Id, "password", normalizedEmail, newUser.Email!, newUser.DisplayName!);
+            _logger.LogInformation("New signup: org={OrgId} ({OrgName}) user={UserId} email={Email}",
+                org.Id, org.Name, newUser.Id, normalizedEmail);
+
+            return LocalRedirect(returnUrl ?? "/");
         }
 
         // ── GET /Auth/SignIn/{provider} ─────────────────────────────

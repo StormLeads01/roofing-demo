@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using RoofingLeadGeneration.Filters;
 using RoofingLeadGeneration.Models;
 
 namespace RoofingLeadGeneration.Controllers;
@@ -24,6 +25,7 @@ public class HomeController : Controller
         return View();
     }
 
+    [SkipTrialGate]
     public IActionResult Landing()
     {
         if (User.Identity?.IsAuthenticated == true)
@@ -31,11 +33,13 @@ public class HomeController : Controller
         return View();
     }
 
+    [SkipTrialGate]
     public IActionResult Privacy()
     {
         return View();
     }
 
+    [SkipTrialGate]
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public IActionResult Error()
     {

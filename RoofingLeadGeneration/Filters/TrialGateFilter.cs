@@ -1,0 +1,71 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.EntityFrameworkCore;
+using RoofingLeadGeneration.Data;
+
+namespace RoofingLeadGeneration.Filters
+{
+    /// <summary>
+    /// Global action filter that enforces the post-trial hard paywall.
+    /// Once an org's <c>TrialEndsAt</c> has passed (and it hasn't been
+    /// cleared by an upgrade), every action is redirected to
+    /// /Billing/Upgrade unless the controller/action carries
+    /// <see cref="SkipTrialGateAttribute"/>.
+    ///
+    /// Orgs with <c>TrialEndsAt == null</c> (legacy orgs created before this
+    /// feature, or orgs that have completed a paid upgrade) are never gated.
+    /// </summary>
+    public class TrialGateFilter : IAsyncActionFilter
+    {
+        private readonly AppDbContext _db;
+
+        public TrialGateFilter(AppDbContext db)
+        {
+            _db = db;
+        }
+
+        public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+        {
+            var skip = false;
+
+            if (context.ActionDescriptor is ControllerActionDescriptor)
+            {
+                skip = context.ActionDescriptor.EndpointMetadata
+                    .Any(m => m is SkipTrialGateAttribute);
+            }
+
+            if (context.HttpContext.User.Identity?.IsAuthenticated == true)
+            {
+                var orgIdClaim = context.HttpContext.User.FindFirst("user_org_id")?.Value;
+                if (long.TryParse(orgIdClaim, out var orgId))
+                {
+                    var trialEndsAt = await _db.Orgs.AsNoTracking()
+                        .Where(o => o.Id == orgId)
+                        .Select(o => o.TrialEndsAt)
+                        .FirstOrDefaultAsync();
+
+                    if (trialEndsAt.HasValue)
+                    {
+                        if (trialEndsAt.Value < DateTime.UtcNow)
+                        {
+                            if (!skip)
+                            {
+                                context.Result = new RedirectResult("/Billing/Upgrade");
+                                return;
+                            }
+                        }
+                        else if (context.Controller is Controller controller)
+                        {
+                            // Surface "X days left" so views can render a trial banner.
+                            var daysLeft = (int)Math.Ceiling((trialEndsAt.Value - DateTime.UtcNow).TotalDays);
+                            controller.ViewData["TrialDaysLeft"] = Math.Max(0, daysLeft);
+                        }
+                    }
+                }
+            }
+
+            await next();
+        }
+    }
+}

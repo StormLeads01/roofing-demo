@@ -7,6 +7,8 @@ namespace RoofingLeadGeneration.Data.Models
         public string  ProviderId  { get; set; } = "";
         public string? Email       { get; set; }
         public string? DisplayName { get; set; }
+        /// <summary>ASP.NET Core Identity password hash — only set for Provider == "password" accounts created via signup.</summary>
+        public string? PasswordHash { get; set; }
         public DateTime CreatedAt  { get; set; } = DateTime.UtcNow;
         public bool    IsAdmin     { get; set; }
         public long?   OrgId      { get; set; }

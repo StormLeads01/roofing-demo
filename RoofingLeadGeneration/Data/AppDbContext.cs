@@ -32,6 +32,7 @@ namespace RoofingLeadGeneration.Data
                 e.Property(o => o.Plan).HasColumnName("plan").HasDefaultValue("free");
                 e.Property(o => o.CreatedAt).HasColumnName("created_at")
                  .HasDefaultValueSql("datetime('now')");
+                e.Property(o => o.TrialEndsAt).HasColumnName("trial_ends_at");
                 e.Property(o => o.CompanyName).HasColumnName("company_name");
                 e.Property(o => o.CompanyEmail).HasColumnName("company_email");
                 e.Property(o => o.Phone).HasColumnName("phone");
@@ -86,6 +87,7 @@ namespace RoofingLeadGeneration.Data
                 e.Property(u => u.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
                 e.Property(u => u.OrgId).HasColumnName("org_id");
                 e.Property(u => u.OrgRole).HasColumnName("org_role").HasDefaultValue("owner");
+                e.Property(u => u.PasswordHash).HasColumnName("password_hash");
 
                 e.HasIndex(u => new { u.Provider, u.ProviderId }).IsUnique();
                 e.HasIndex(u => u.OrgId);

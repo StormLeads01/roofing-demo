@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Infrastructure;
 using RoofingLeadGeneration.Data;
+using RoofingLeadGeneration.Filters;
 using RoofingLeadGeneration.Services;
 
 QuestPDF.Settings.License = LicenseType.Community;
@@ -10,7 +12,11 @@ var builder = WebApplication.CreateBuilder(args);
 var config  = builder.Configuration;
 
 // ── MVC ───────────────────────────────────────────────────────────────────
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews(o =>
+{
+    // Hard paywall once an org's trial has expired (see Filters/TrialGateFilter.cs)
+    o.Filters.Add<TrialGateFilter>();
+});
 builder.Services.AddMemoryCache();
 
 // ── Database (EF Core + SQLite) ───────────────────────────────────────────
@@ -144,6 +150,7 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("users", "is_admin",            "INTEGER NOT NULL DEFAULT 0");
     AddColumnIfMissing("users", "org_id",              "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
     AddColumnIfMissing("users", "org_role",            "TEXT NOT NULL DEFAULT 'owner'");
+    AddColumnIfMissing("users", "password_hash",       "TEXT");
     AddColumnIfMissing("leads", "year_built",          "INTEGER");
     AddColumnIfMissing("leads", "owner_name",          "TEXT");
     AddColumnIfMissing("leads", "owner_phone",         "TEXT");
@@ -192,6 +199,7 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("orgs", "tagline",        "TEXT");
     AddColumnIfMissing("orgs", "license_number", "TEXT");
     AddColumnIfMissing("orgs", "logo_path",      "TEXT");
+    AddColumnIfMissing("orgs", "trial_ends_at",  "TEXT");
 
     if (!TableExists("orgs"))
     {

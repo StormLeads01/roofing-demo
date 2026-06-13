@@ -1,0 +1,79 @@
+@{
+    Layout = null;
+    var returnUrl      = ViewData["ReturnUrl"]      as string ?? "/";
+    var registerError  = ViewData["RegisterError"]  as string;
+    var companyName    = ViewData["CompanyName"]    as string;
+    var name           = ViewData["Name"]           as string;
+    var email          = ViewData["Email"]          as string;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create your account — StormLead Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+    <link rel="stylesheet" href="~/css/login.css" />
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+<div class="w-full max-w-sm">
+
+    <!-- Logo -->
+    <div class="text-center mb-8">
+        <div class="inline-flex items-center gap-2.5 mb-4">
+            <div class="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-house-chimney text-white"></i>
+            </div>
+            <span class="text-2xl font-extrabold text-white tracking-tight">
+                Storm<span class="text-orange-500">Lead</span> Pro
+            </span>
+        </div>
+        <p class="text-slate-400 text-sm">Start finding storm-damaged roofs in your area</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-8 shadow-2xl">
+
+        <h2 class="text-white font-bold text-lg mb-6 text-center">Create your account</h2>
+
+        @if (registerError != null)
+        {
+            <div class="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm text-center mb-4">
+                <i class="fa-solid fa-circle-exclamation mr-1"></i>@registerError
+            </div>
+        }
+
+        <form method="post" action="/Auth/Register?returnUrl=@Uri.EscapeDataString(returnUrl)" class="space-y-3">
+            <input type="text" name="companyName" placeholder="Company name" value="@companyName"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required />
+            <input type="text" name="name" placeholder="Your name" value="@name"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required />
+            <input type="email" name="email" placeholder="Email" value="@email"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required />
+            <input type="password" name="password" placeholder="Password (min. 8 characters)"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required minlength="8" />
+            <input type="password" name="confirmPassword" placeholder="Confirm password"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required minlength="8" />
+            <button type="submit"
+                    class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl px-4 py-3 text-sm transition">
+                Create account
+            </button>
+        </form>
+
+        <p class="text-center text-slate-400 text-xs mt-5">
+            Already have an account?
+            <a href="/Auth/Login?returnUrl=@Uri.EscapeDataString(returnUrl)" class="text-orange-400 hover:text-orange-300 font-medium">Sign in</a>
+        </p>
+
+    </div>
+
+    <p class="text-center text-slate-600 text-xs mt-6">
+        StormLead Pro &copy; 2026 &mdash; Your data is private and secure
+    </p>
+
+</div>
+</body>
+</html>

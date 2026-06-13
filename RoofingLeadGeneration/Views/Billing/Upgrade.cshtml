@@ -1,0 +1,146 @@
+@{
+    Layout = null;
+    var trialEndsAt  = ViewBag.TrialEndsAt as DateTime?;
+    var companyName  = ViewBag.CompanyName as string ?? "your team";
+    // Build mailto links here (rather than inline in markup) so the literal
+    // "@" in the email address never sits next to a Razor @() expression.
+    var supportEmail  = "stormlead.pro@gmail.com";
+    var proMailto     = "mailto:" + supportEmail + "?subject=" + Uri.EscapeDataString("Upgrade to Pro - " + companyName);
+    var agencyMailto  = "mailto:" + supportEmail + "?subject=" + Uri.EscapeDataString("Upgrade to Agency - " + companyName);
+    var supportMailto = "mailto:" + supportEmail;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Choose a plan — StormLead Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: {
+                navy:  { DEFAULT: '#0f172a', 700: '#1e293b', 600: '#334155', 500: '#475569' },
+                brand: { DEFAULT: '#f97316', dark: '#ea6c0a', light: '#fdba74' }
+            }}}
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body class="min-h-screen bg-navy text-white">
+
+<!-- Header -->
+<header class="border-b border-slate-700/60">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow">
+                <i class="fa-solid fa-house-chimney text-white text-sm"></i>
+            </div>
+            <span class="text-lg font-extrabold tracking-tight">Storm<span class="text-brand">Lead</span> Pro</span>
+        </div>
+        <a href="/Auth/Logout" class="text-slate-400 hover:text-white text-sm transition-colors">
+            <i class="fa-solid fa-right-from-bracket mr-1"></i>Sign out
+        </a>
+    </div>
+</header>
+
+<!-- Banner -->
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-6 text-center">
+    <div class="inline-flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-semibold uppercase tracking-widest px-4 py-1.5 rounded-full mb-5">
+        <i class="fa-solid fa-clock"></i>Trial ended
+    </div>
+    <h1 class="text-3xl sm:text-4xl font-black mb-3">Your free trial has ended</h1>
+    <p class="text-slate-400 max-w-xl mx-auto">
+        @(companyName)'s 7-day Pro trial
+        @if (trialEndsAt.HasValue)
+        {
+            <text> ended on @trialEndsAt.Value.ToString("MMM d, yyyy")</text>
+        }
+        . Choose a plan below to keep your leads, alerts, and reports up and running.
+    </p>
+</div>
+
+<!-- Pricing -->
+<section class="px-6 pb-24">
+    <div class="max-w-5xl mx-auto">
+        <div class="grid sm:grid-cols-3 gap-6 items-start">
+
+            <!-- Free -->
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-7">
+                <p class="text-sm font-semibold text-slate-400 mb-1">Free</p>
+                <div class="flex items-end gap-1 mb-5">
+                    <span class="text-4xl font-black text-white">$0</span>
+                    <span class="text-slate-500 mb-1.5">/month</span>
+                </div>
+                <form method="post" action="/Billing/ContinueFree">
+                    <button type="submit" class="block w-full text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm py-3 rounded-xl transition mb-7">
+                        Continue with Free
+                    </button>
+                </form>
+                <ul class="space-y-3 text-sm text-slate-300">
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>10 searches per month</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Real NOAA risk scoring</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Interactive map view</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Claim window countdown</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Owner enrichment</span></li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Storm alerts</span></li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">CSV export</span></li>
+                </ul>
+            </div>
+
+            <!-- Pro -->
+            <div class="card-hover bg-slate-800/80 border-2 border-brand/50 rounded-2xl p-7 mt-4">
+                <p class="text-sm font-semibold text-brand mb-1">Pro</p>
+                <div class="flex items-end gap-1 mb-1">
+                    <span class="text-4xl font-black text-white">$99</span>
+                    <span class="text-slate-500 mb-1.5">/month</span>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">+ $15 per 100 extra enrichment credits</p>
+                <a href="@proMailto"
+                   class="block text-center bg-brand hover:bg-orange-400 text-white font-bold text-sm py-3 rounded-xl transition mb-7 shadow-lg shadow-orange-500/20">
+                    Email us to upgrade
+                </a>
+                <ul class="space-y-3 text-sm text-slate-300">
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Unlimited searches</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>100 enrichment credits/mo</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Storm alerts (unlimited areas)</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Claim window countdown</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>CSV export</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Pipeline status tracking</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Team seats</span></li>
+                </ul>
+            </div>
+
+            <!-- Agency -->
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-7">
+                <p class="text-sm font-semibold text-slate-400 mb-1">Agency</p>
+                <div class="flex items-end gap-1 mb-1">
+                    <span class="text-4xl font-black text-white">$249</span>
+                    <span class="text-slate-500 mb-1.5">/month</span>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">+ $25/mo per additional seat</p>
+                <a href="@agencyMailto"
+                   class="block text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm py-3 rounded-xl transition mb-7">
+                    Email us to upgrade
+                </a>
+                <ul class="space-y-3 text-sm text-slate-300">
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Everything in Pro</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>5 team seats included</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>500 enrichment credits/mo</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Lead assignment to reps</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>CSV import (your own lists)</li>
+                    <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Priority support</li>
+                </ul>
+            </div>
+
+        </div>
+
+        <p class="text-center text-slate-600 text-xs mt-10">
+            Need help? <a href="/Help" class="text-orange-400 hover:text-orange-300">Visit the help center</a>
+            or email <a href="@supportMailto" class="text-orange-400 hover:text-orange-300">@supportEmail</a>.
+        </p>
+    </div>
+</section>
+
+</body>
+</html>
