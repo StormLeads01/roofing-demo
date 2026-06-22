@@ -18,13 +18,15 @@ namespace RoofingLeadGeneration.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly HailReportService   _reports;
         private readonly RealDataService     _realData;
+        private readonly IConfiguration      _config;
 
-        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports, RealDataService realData)
+        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports, RealDataService realData, IConfiguration config)
         {
             _db       = db;
             _env      = env;
             _reports  = reports;
             _realData = realData;
+            _config   = config;
         }
 
         private long? CurrentUserId =>
@@ -36,7 +38,9 @@ namespace RoofingLeadGeneration.Controllers
         private string CurrentOrgRole =>
             User.FindFirst("user_org_role")?.Value ?? "rep";
 
-        private bool CanEnrich => CurrentOrgRole is "owner" or "manager";
+        private bool CanEnrich =>
+            _config.GetValue<bool>("FeatureFlags:EnrichmentEnabled")
+            && CurrentOrgRole is "owner" or "manager";
 
         // ── GET /Leads/Saved → HTML page ────────────────────────────
         [HttpGet("Saved")]
@@ -66,8 +70,8 @@ namespace RoofingLeadGeneration.Controllers
         {
             var orgId = CurrentOrgId;
 
-            var activeStatuses = new[] { "new", "contacted", "appointment_set" };
-            var closedStatuses = new[] { "closed_won", "closed_lost" };
+            var pipelineStatuses = new[] { "contacted", "appointment_set" };
+            var closedStatuses   = new[] { "closed_won", "closed_lost" };
 
             IQueryable<Lead> query;
             if (tab == "archived")
@@ -81,9 +85,9 @@ namespace RoofingLeadGeneration.Controllers
                     .Where(l => (l.OrgId == orgId || l.OrgId == null) && l.DeletedAt == null);
                 query = tab switch
                 {
-                    "pipeline" => query.Where(l => l.IsEnriched && activeStatuses.Contains(l.Status)),
-                    "closed"   => query.Where(l => l.IsEnriched && closedStatuses.Contains(l.Status)),
-                    _          => query.Where(l => !l.IsEnriched)   // unenriched (default)
+                    "pipeline" => query.Where(l => pipelineStatuses.Contains(l.Status)),
+                    "closed"   => query.Where(l => closedStatuses.Contains(l.Status)),
+                    _          => query.Where(l => l.Status == "new" || l.Status == null)  // new leads (default)
                 };
             }
 
@@ -187,6 +191,8 @@ namespace RoofingLeadGeneration.Controllers
         [HttpPost("{id:long}/Enrich")]
         public async Task<IActionResult> Enrich(long id)
         {
+            if (!_config.GetValue<bool>("FeatureFlags:EnrichmentEnabled"))
+                return StatusCode(503, new { error = "Enrichment is currently disabled." });
             if (!CanEnrich)
                 return StatusCode(403, new { error = "Reps cannot run enrichment. Ask an owner or manager." });
 
@@ -324,6 +330,8 @@ namespace RoofingLeadGeneration.Controllers
         [HttpPost("BulkEnrich")]
         public async Task<IActionResult> BulkEnrich([FromBody] BulkRequest req)
         {
+            if (!_config.GetValue<bool>("FeatureFlags:EnrichmentEnabled"))
+                return StatusCode(503, new { error = "Enrichment is currently disabled." });
             if (!CanEnrich)
                 return StatusCode(403, new { error = "Reps cannot run enrichment. Ask an owner or manager." });
 
@@ -473,9 +481,9 @@ namespace RoofingLeadGeneration.Controllers
             {
                 totalLeads              = await activeLeadsQ.CountAsync(),
                 leadsThisMonth          = await activeLeadsQ.CountAsync(l => l.SavedAt >= som),
-                unenrichedCount         = await activeLeadsQ.CountAsync(l => !l.IsEnriched),
-                pipelineCount           = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "new", "contacted", "appointment_set" }.Contains(l.Status)),
-                closedCount             = await activeLeadsQ.CountAsync(l => l.IsEnriched && new[] { "closed_won", "closed_lost" }.Contains(l.Status)),
+                unenrichedCount         = await activeLeadsQ.CountAsync(l => l.Status == "new" || l.Status == null),
+                pipelineCount           = await activeLeadsQ.CountAsync(l => new[] { "contacted", "appointment_set" }.Contains(l.Status)),
+                closedCount             = await activeLeadsQ.CountAsync(l => new[] { "closed_won", "closed_lost" }.Contains(l.Status)),
                 archivedCount           = await allLeadsQ.CountAsync(l => l.DeletedAt != null),
                 totalEnrichments        = await enrichmentsQ.CountAsync(),
                 enrichmentsThisMonth    = await enrichmentsQ.CountAsync(e => e.CreatedAt >= som),
@@ -491,8 +499,7 @@ namespace RoofingLeadGeneration.Controllers
         {
             var lead = await _db.Leads.FindAsync(id);
             if (lead == null) return NotFound();
-            if (lead.IsEnriched)
-                return BadRequest(new { error = "Enriched leads cannot be deleted." });
+            // Enrichment guard removed — leads are deletable regardless of enrichment state
 
             lead.DeletedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();

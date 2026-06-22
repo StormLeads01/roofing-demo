@@ -12,11 +12,13 @@ namespace RoofingLeadGeneration.Controllers
     {
         private readonly AppDbContext _db;
         private readonly string       _adminEmail;
+        private readonly bool         _enrichmentEnabled;
 
         public AdminController(AppDbContext db, IConfiguration config)
         {
-            _db         = db;
-            _adminEmail = config["AdminEmail"] ?? "";
+            _db                = db;
+            _adminEmail        = config["AdminEmail"] ?? "";
+            _enrichmentEnabled = config.GetValue<bool>("FeatureFlags:EnrichmentEnabled");
         }
 
         private bool IsAdmin() =>
@@ -31,11 +33,15 @@ namespace RoofingLeadGeneration.Controllers
             var now = DateTime.UtcNow;
             var som = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
+            ViewBag.EnrichmentEnabled = _enrichmentEnabled;
             ViewBag.TotalUsers  = await _db.Users.CountAsync();
             ViewBag.TotalLeads  = await _db.Leads.CountAsync();
-            ViewBag.TotalEnrich = await _db.Enrichments.CountAsync();
-            ViewBag.EnrichMonth = await _db.Enrichments.CountAsync(e => e.CreatedAt >= som);
             ViewBag.LeadsMonth  = await _db.Leads.CountAsync(l => l.SavedAt >= som);
+            if (_enrichmentEnabled)
+            {
+                ViewBag.TotalEnrich = await _db.Enrichments.CountAsync();
+                ViewBag.EnrichMonth = await _db.Enrichments.CountAsync(e => e.CreatedAt >= som);
+            }
 
             ViewBag.Users = await _db.Users
                 .OrderByDescending(u => u.CreatedAt)

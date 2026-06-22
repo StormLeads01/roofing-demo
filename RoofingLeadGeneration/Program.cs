@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Infrastructure;
 using RoofingLeadGeneration.Data;
+using RoofingLeadGeneration.Data.Models;
 using RoofingLeadGeneration.Filters;
 using RoofingLeadGeneration.Services;
 
@@ -377,6 +379,68 @@ using (var scope = app.Services.CreateScope())
         cmd.ExecuteNonQuery();
         cmd.CommandText = "CREATE INDEX ix_org_credit_tx_created_at ON org_credit_transactions(created_at)";
         cmd.ExecuteNonQuery();
+    }
+
+    // ── Dev-only seed login ───────────────────────────────────────────────
+    // Gives you a ready-to-use account at /Auth/Login on localhost without
+    // going through /Auth/Register. Only runs in Development, and only the
+    // first time (skipped once the account exists). The seed email matches
+    // AdminEmail in appsettings.json, so this account also unlocks /Admin.
+    if (app.Environment.IsDevelopment())
+    {
+        const string seedEmail    = "jaholder78@gmail.com";
+        const string seedPassword = "LocalDev123!";
+
+        var seedExists = await db.Users.AnyAsync(
+            u => u.Provider == "password" && u.ProviderId == seedEmail);
+
+        if (!seedExists)
+        {
+            var seedOrg = new RoofingLeadGeneration.Data.Models.Org
+            {
+                Name        = "StormLead Demo Co.",
+                CompanyName = "StormLead Demo Co.",
+                Plan        = "pro",
+                TrialEndsAt = null, // null = never gated by TrialGateFilter
+                CreatedAt   = DateTime.UtcNow
+            };
+            db.Orgs.Add(seedOrg);
+            await db.SaveChangesAsync(); // get seedOrg.Id
+
+            var seedUser = new User
+            {
+                Provider    = "password",
+                ProviderId  = seedEmail,
+                Email       = seedEmail,
+                DisplayName = "James",
+                OrgId       = seedOrg.Id,
+                OrgRole     = "owner",
+                IsAdmin     = true,
+                CreatedAt   = DateTime.UtcNow
+            };
+            seedUser.PasswordHash = new PasswordHasher<User>().HashPassword(seedUser, seedPassword);
+            db.Users.Add(seedUser);
+            await db.SaveChangesAsync(); // get seedUser.Id
+
+            seedOrg.OwnerId = seedUser.Id;
+
+            db.OrgCredits.Add(new OrgCredit
+            {
+                OrgId       = seedOrg.Id,
+                CreditType  = "enrichment",
+                Balance     = 100,
+                PeriodStart = DateTime.UtcNow,
+                UpdatedAt   = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            Console.WriteLine("──────────────────────────────────────────────────");
+            Console.WriteLine(" Seeded local dev login (Development only):");
+            Console.WriteLine($"   Email:    {seedEmail}");
+            Console.WriteLine($"   Password: {seedPassword}");
+            Console.WriteLine("   Sign in:  /Auth/Login");
+            Console.WriteLine("──────────────────────────────────────────────────");
+        }
     }
 
     conn.Close();

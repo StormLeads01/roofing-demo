@@ -112,7 +112,7 @@
                 Saved Leads
                 <span id="heroCount" class="text-base font-normal text-slate-400 ml-1"></span>
             </h1>
-            <p class="text-slate-400 text-sm mt-0.5">Manage your pipeline and enrich with homeowner contact info.</p>
+            <p class="text-slate-400 text-sm mt-0.5">Manage your saved leads and download hail reports.</p>
         </div>
         <div class="flex items-center gap-2">
             <button onclick="exportCSV()"
@@ -137,8 +137,8 @@
         <button id="tabUnenriched" onclick="switchLeadTab('unenriched')"
             class="lead-tab lead-tab-active flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-bolt text-orange-400"></i>
-            <span class="hidden sm:inline">Needs Enrichment</span>
-            <span class="sm:hidden">Enrich</span>
+            <span class="hidden sm:inline">New Leads</span>
+            <span class="sm:hidden">New</span>
             <span id="tabUnenrichedCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
         </button>
         <button id="tabPipeline" onclick="switchLeadTab('pipeline')"
@@ -170,10 +170,13 @@
             <span id="selectedCount">0</span> lead<span id="selectedCountPlural">s</span> selected
         </span>
         <div class="flex-1"></div>
+        @if (Configuration.GetValue<bool>("FeatureFlags:EnrichmentEnabled"))
+        {
         <button id="btnBulkEnrich" onclick="bulkEnrich()"
             class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold transition">
             <i class="fa-solid fa-bolt"></i>Enrich
         </button>
+        }
         <button id="btnBulkExport" onclick="bulkExport()"
             class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 text-xs font-semibold transition">
             <i class="fa-solid fa-file-csv text-brand"></i>Export
@@ -243,7 +246,7 @@
                         <th onclick="sortBy('riskLevel')"        class="text-left"   style="min-width:75px"><span class="sort-icon">Risk</span></th>
                         <th onclick="sortBy('hailSize')"         class="text-left hidden md:table-cell" style="min-width:80px"><span class="sort-icon">Hail</span></th>
                         <th onclick="sortBy('lastStormDate')"    class="text-left hidden md:table-cell" style="min-width:115px"><span class="sort-icon">Storm / Claim</span></th>
-                        <th onclick="sortBy('status')"           class="text-left hidden xl:table-cell" style="min-width:130px"><span class="sort-icon">Status</span></th>
+                        <th onclick="sortBy('status')"           class="text-left hidden md:table-cell" style="min-width:130px"><span class="sort-icon">Status</span></th>
                         <th class="text-center sticky-actions"   style="cursor:default; min-width:168px">Actions</th>
                     </tr>
                 </thead>
@@ -279,8 +282,10 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
-     TAB: DATA SOURCES
+     TAB: DATA SOURCES (enrichment — hidden when flag is off)
 ══════════════════════════════════════════════════════════════ -->
+@if (Configuration.GetValue<bool>("FeatureFlags:EnrichmentEnabled"))
+{
 <div id="panelSources" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
     <div class="mb-6 p-5 rounded-2xl bg-brand/10 border border-brand/30">
@@ -516,6 +521,7 @@
 
     </div>
 </div>
+}
 
 <footer class="mt-12 border-t border-slate-700/60 bg-slate-900/60">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">

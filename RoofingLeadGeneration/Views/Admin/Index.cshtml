@@ -3,6 +3,7 @@
     Layout = null;
     var totalUsers  = (int)(ViewBag.TotalUsers  ?? 0);
     var totalLeads  = (int)(ViewBag.TotalLeads  ?? 0);
+    var enrichmentEnabled = ViewBag.EnrichmentEnabled is true;
     var totalEnrich = (int)(ViewBag.TotalEnrich ?? 0);
     var enrichMonth = (int)(ViewBag.EnrichMonth ?? 0);
     var leadsMonth  = (int)(ViewBag.LeadsMonth  ?? 0);
@@ -80,6 +81,8 @@
             <p class="text-3xl font-extrabold text-brand">@leadsMonth</p>
             <p class="text-xs text-slate-500 mt-1">current month</p>
         </div>
+        @if (enrichmentEnabled)
+        {
         <div class="stat-card">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Enrichments</p>
             <p class="text-3xl font-extrabold text-white">@totalEnrich</p>
@@ -90,6 +93,7 @@
             <p class="text-3xl font-extrabold text-brand">@enrichMonth</p>
             <p class="text-xs text-slate-500 mt-1">current month</p>
         </div>
+        }
     </div>
 
     <!-- Users table -->
@@ -107,7 +111,7 @@
                         <th class="text-left">User</th>
                         <th class="text-left">Provider</th>
                         <th class="text-left">Leads</th>
-                        <th class="text-left">Enrichments</th>
+                        @if (enrichmentEnabled) { <th class="text-left">Enrichments</th> }
                         <th class="text-left">Last Lead</th>
                         <th class="text-left">Joined</th>
                     </tr>
@@ -134,7 +138,7 @@
                                     }
                                 </td>
                                 <td class="font-semibold text-white">@u.LeadCount</td>
-                                <td class="font-semibold text-white">@u.EnrichCount</td>
+                                @if (enrichmentEnabled) { <td class="font-semibold text-white">@u.EnrichCount</td> }
                                 <td class="text-slate-400 whitespace-nowrap">@lastLead</td>
                                 <td class="text-slate-400 whitespace-nowrap">@joined</td>
                             </tr>

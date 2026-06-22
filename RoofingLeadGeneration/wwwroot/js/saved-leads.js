@@ -45,7 +45,7 @@ function switchLeadTab(tab) {
 async function loadLeads() {
     setLoading(true);
     try {
-        const resp = await fetch('/Leads?tab=' + activeTab);
+        const resp = await fetch('/Leads?tab=' + activeTab, { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         allLeads = await resp.json();
         updateTabCounts();
@@ -373,23 +373,16 @@ async function setStatus(id, value) {
         var lead = allLeads.find(function(l) { return l.id === id; });
         if (lead) lead.status = value;
 
-        var pipelineStatuses = ['new', 'contacted', 'appointment_set'];
+        var pipelineStatuses = ['contacted', 'appointment_set'];
         var closedStatuses   = ['closed_won', 'closed_lost'];
-        var leavesTab = (activeTab === 'pipeline' && closedStatuses.includes(value)) ||
-                        (activeTab === 'closed'   && pipelineStatuses.includes(value));
+        var leavesTab = (activeTab === 'unenriched' && !['new', null].includes(value)) ||
+                        (activeTab === 'pipeline'   && !pipelineStatuses.includes(value)) ||
+                        (activeTab === 'closed'     && !closedStatuses.includes(value));
 
-        if (leavesTab) {
-            allLeads = allLeads.filter(function(l) { return l.id !== id; });
-            showToast('Status updated - lead moved to ' + (closedStatuses.includes(value) ? 'Closed' : 'Pipeline'), true);
-            updateTabCounts();
-            renderTable();
-            refreshTabCounts();
-        } else {
-            document.querySelectorAll('[data-lead-id="' + id + '"] .status-select').forEach(function(sel) {
-                sel.className = 'status-select ' + statusClass(value);
-            });
-            showToast('Status updated', true);
-        }
+        var dest = closedStatuses.includes(value) ? 'Closed' : pipelineStatuses.includes(value) ? 'Pipeline' : 'New Leads';
+        showToast(leavesTab ? 'Status updated — moved to ' + dest : 'Status updated', true);
+        await loadLeads();
+        refreshTabCounts();
     } catch(e) {
         showToast('Failed to update status: ' + e.message, false);
         renderTable();
@@ -496,8 +489,8 @@ function buildRow(lead) {
     }
 
     const statusCell = activeTab !== 'archived'
-        ? '<td class="hidden xl:table-cell">' + buildStatusDropdown(lead) + '</td>'
-        : '<td class="hidden xl:table-cell"><span class="text-xs text-slate-600 italic">archived</span></td>';
+        ? '<td class="hidden md:table-cell">' + buildStatusDropdown(lead) + '</td>'
+        : '<td class="hidden md:table-cell"><span class="text-xs text-slate-600 italic">archived</span></td>';
 
     // Edit contact — expands a row below (pencil icon toggles it)
     const editExpRow = ed

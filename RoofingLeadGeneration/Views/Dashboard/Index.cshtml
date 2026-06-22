@@ -4,6 +4,7 @@
     var isAdmin         = ViewBag.IsAdmin         is true;
     var totalLeads      = (long)(ViewBag.TotalLeads      ?? 0L);
     var leadsThisMonth  = (long)(ViewBag.LeadsThisMonth  ?? 0L);
+    var enrichmentEnabled = ViewBag.EnrichmentEnabled is true;
     var totalEnrich     = (long)(ViewBag.TotalEnrich     ?? 0L);
     var enrichThisMonth = (long)(ViewBag.EnrichThisMonth ?? 0L);
     var pipelineCount   = (long)(ViewBag.PipelineCount   ?? 0L);
@@ -118,11 +119,14 @@
             <p class="text-xs text-slate-500 mt-1">current billing period</p>
         </div>
 
+        @if (enrichmentEnabled)
+        {
         <div class="stat-card">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Enrichments</p>
             <p class="text-3xl font-extrabold text-white">@enrichThisMonth</p>
             <p class="text-xs text-slate-500 mt-1">this month · @totalEnrich total</p>
         </div>
+        }
 
         <div class="stat-card">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Win Rate</p>
@@ -187,6 +191,8 @@
             }
         </div>
 
+        @if (enrichmentEnabled)
+        {
         <!-- Recent enrichments -->
         <div class="rounded-2xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
             <div class="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between">
@@ -228,6 +234,7 @@
                 </div>
             }
         </div>
+        }
 
     </div><!-- /grid -->
 
