@@ -105,30 +105,31 @@ namespace RoofingLeadGeneration.Services
 
                             col.Item().Padding(24).Row(row =>
                             {
-                                row.RelativeItem().Column(inner =>
+                                // Left: logo if available, else accent bar placeholder
+                                if (logoBytes != null && logoBytes.Length > 0)
+                                {
+                                    row.ConstantItem(80).AlignMiddle()
+                                        .Height(52).Image(logoBytes).FitHeight();
+                                    row.ConstantItem(16); // spacer
+                                }
+
+                                // Title block
+                                row.RelativeItem().AlignMiddle().Column(inner =>
                                 {
                                     inner.Item().Text("HAIL DAMAGE REPORT")
-                                        .FontSize(22).Bold().FontColor(accentHex);
+                                        .FontSize(20).Bold().FontColor(accentHex);
                                     inner.Item().PaddingTop(3).Text("Informational Property Assessment")
                                         .FontSize(10).FontColor(SlateLight);
                                 });
 
-                                // Right side: logo image if available, else company name text
-                                row.ConstantItem(180).AlignRight().AlignMiddle().Column(inner =>
+                                // Right: company name + website
+                                row.ConstantItem(160).AlignRight().AlignMiddle().Column(inner =>
                                 {
-                                    if (logoBytes != null && logoBytes.Length > 0)
-                                    {
-                                        inner.Item().AlignRight().Height(48)
-                                            .Image(logoBytes).FitHeight();
-                                    }
-                                    else
-                                    {
-                                        inner.Item().AlignRight().Text(companyName)
-                                            .FontSize(15).Bold().FontColor(accentHex);
-                                        if (!string.IsNullOrWhiteSpace(companyWeb))
-                                            inner.Item().AlignRight().PaddingTop(3).Text(companyWeb)
-                                                .FontSize(8).FontColor(SlateLight);
-                                    }
+                                    inner.Item().AlignRight().Text(companyName)
+                                        .FontSize(13).Bold().FontColor(White);
+                                    if (!string.IsNullOrWhiteSpace(companyWeb))
+                                        inner.Item().AlignRight().PaddingTop(3).Text(companyWeb)
+                                            .FontSize(8).FontColor(SlateLight);
                                 });
                             });
 

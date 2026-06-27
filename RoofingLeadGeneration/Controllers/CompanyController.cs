@@ -84,10 +84,14 @@ namespace RoofingLeadGeneration.Controllers
                 System.Text.RegularExpressions.Regex.IsMatch(headerColor.Trim(), @"^#[0-9a-fA-F]{6}$"))
                 org.HeaderColor = headerColor.Trim();
 
+            // Logos are stored on the persistent data volume so they survive redeploys
+            var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+            Directory.CreateDirectory(logosDir);
+
             // Handle logo removal
             if (removeLogo == "true" && !string.IsNullOrWhiteSpace(org.LogoPath))
             {
-                var oldPath = Path.Combine(_env.WebRootPath, org.LogoPath.TrimStart('/'));
+                var oldPath = Path.Combine(logosDir, Path.GetFileName(org.LogoPath));
                 if (System.IO.File.Exists(oldPath))
                     System.IO.File.Delete(oldPath);
                 org.LogoPath = null;
@@ -112,23 +116,44 @@ namespace RoofingLeadGeneration.Controllers
                 // Delete old logo if any
                 if (!string.IsNullOrWhiteSpace(org.LogoPath))
                 {
-                    var oldPath = Path.Combine(_env.WebRootPath, org.LogoPath.TrimStart('/'));
+                    var oldPath = Path.Combine(logosDir, Path.GetFileName(org.LogoPath));
                     if (System.IO.File.Exists(oldPath))
                         System.IO.File.Delete(oldPath);
                 }
 
-                var uploadsDir = Path.Combine(_env.WebRootPath, "uploads", "logos");
-                Directory.CreateDirectory(uploadsDir);
                 var fileName = $"{orgId}{ext}";
-                var filePath = Path.Combine(uploadsDir, fileName);
+                var filePath = Path.Combine(logosDir, fileName);
                 using var stream = new FileStream(filePath, FileMode.Create);
                 await logoFile.CopyToAsync(stream);
-                org.LogoPath = $"/uploads/logos/{fileName}";
+                org.LogoPath = fileName; // just the filename; served via /Company/Logo/{orgId}
             }
 
             await _db.SaveChangesAsync();
             TempData["Success"] = "Company profile saved.";
             return RedirectToAction(nameof(Settings));
+        }
+
+        // GET /Company/Logo/{orgId} — serves logo from the persistent data volume
+        [HttpGet("Logo/{id:long}")]
+        public IActionResult Logo(long id)
+        {
+            var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+            // Find any file whose name starts with the orgId (ext may vary)
+            var file = Directory.EnumerateFiles(logosDir)
+                .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f) == id.ToString());
+            if (file == null) return NotFound();
+
+            var ext  = Path.GetExtension(file).ToLowerInvariant();
+            var mime = ext switch
+            {
+                ".png"  => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif"  => "image/gif",
+                ".webp" => "image/webp",
+                ".svg"  => "image/svg+xml",
+                _       => "application/octet-stream"
+            };
+            return PhysicalFile(file, mime);
         }
     }
 }

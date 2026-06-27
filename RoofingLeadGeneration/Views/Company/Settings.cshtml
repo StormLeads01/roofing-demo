@@ -135,7 +135,7 @@
                          class="w-24 h-24 rounded-xl bg-slate-900 border-2 border-dashed border-slate-600 flex items-center justify-center overflow-hidden shrink-0">
                         @if (!string.IsNullOrWhiteSpace(Model.LogoPath))
                         {
-                            <img src="@Model.LogoPath" alt="Company logo" class="w-full h-full object-contain p-1" id="logoImg" />
+                            <img src="/Company/Logo/@Model.Id" alt="Company logo" class="w-full h-full object-contain p-1" id="logoImg" />
                         }
                         else
                         {

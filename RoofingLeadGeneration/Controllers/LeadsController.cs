@@ -290,7 +290,8 @@ namespace RoofingLeadGeneration.Controllers
                 org = await _db.Orgs.FirstOrDefaultAsync(o => o.Id == orgId);
                 if (org != null && !string.IsNullOrWhiteSpace(org.LogoPath))
                 {
-                    var logoPath = Path.Combine(_env.WebRootPath, org.LogoPath.TrimStart('/'));
+                    var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+                    var logoPath = Path.Combine(logosDir, Path.GetFileName(org.LogoPath));
                     if (System.IO.File.Exists(logoPath))
                         logoBytes = await System.IO.File.ReadAllBytesAsync(logoPath);
                 }
