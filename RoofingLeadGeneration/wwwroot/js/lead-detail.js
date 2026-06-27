@@ -137,6 +137,7 @@ async function detailSetStatus(id, value) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: value })
         });
+        if (resp.status === 402) { window.location.href = '/Billing/Upgrade'; return; }
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         showDetailToast('Status updated', true);
         // Update the status badge in the hero

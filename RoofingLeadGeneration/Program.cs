@@ -13,6 +13,12 @@ QuestPDF.Settings.License = LicenseType.Community;
 var builder = WebApplication.CreateBuilder(args);
 var config  = builder.Configuration;
 
+// ── Data Protection (persist keys so auth cookies survive redeploys) ──────
+var keysDir = Path.Combine(AppContext.BaseDirectory, "data", "dp-keys");
+Directory.CreateDirectory(keysDir);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(keysDir));
+
 // ── MVC ───────────────────────────────────────────────────────────────────
 builder.Services.AddControllersWithViews(o =>
 {
