@@ -233,15 +233,15 @@
 
                 <!-- Accent color -->
                 <p class="text-xs text-slate-400 mb-2">Accent color — used for title text and strip on PDF reports</p>
-                <div class="flex items-center gap-4 mb-5">
+                <div class="flex items-center gap-3 mb-4">
                     <input type="color" name="accentColor" id="accentColor"
                            value="@accent"
                            oninput="updateColorPreview(this.value)"
-                           class="w-12 h-12 rounded-xl border-2 border-slate-600 cursor-pointer bg-transparent p-0.5" />
-                    <div>
-                        <p class="text-white text-sm font-semibold" id="colorHex">@accent</p>
-                    </div>
-                    <div id="colorSwatch" class="ml-auto w-32 h-10 rounded-xl"
+                           class="w-12 h-10 rounded-lg border-2 border-slate-600 cursor-pointer bg-transparent p-0.5 shrink-0" />
+                    <input type="text" id="accentHexInput" value="@accent" maxlength="7" placeholder="#f97316"
+                           oninput="onHexInput(this, 'accentColor', updateColorPreview)"
+                           class="w-28 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-white text-sm font-mono focus:outline-none focus:border-brand" />
+                    <div id="colorSwatch" class="ml-auto w-24 h-10 rounded-lg flex-shrink-0"
                          style="background-color: @accent"></div>
                 </div>
                 <div class="flex flex-wrap gap-2 mb-6">
@@ -259,15 +259,15 @@
 
                 <!-- Header background color -->
                 <p class="text-xs text-slate-400 mb-2">Header background color — used behind your company name on PDF reports</p>
-                <div class="flex items-center gap-4 mb-3">
+                <div class="flex items-center gap-3 mb-3">
                     <input type="color" name="headerColor" id="headerColor"
                            value="@header"
                            oninput="updateHeaderPreview(this.value)"
-                           class="w-12 h-12 rounded-xl border-2 border-slate-600 cursor-pointer bg-transparent p-0.5" />
-                    <div>
-                        <p class="text-white text-sm font-semibold" id="headerHex">@header</p>
-                    </div>
-                    <div id="headerSwatch" class="ml-auto w-32 h-10 rounded-xl"
+                           class="w-12 h-10 rounded-lg border-2 border-slate-600 cursor-pointer bg-transparent p-0.5 shrink-0" />
+                    <input type="text" id="headerHexInput" value="@header" maxlength="7" placeholder="#0f172a"
+                           oninput="onHexInput(this, 'headerColor', updateHeaderPreview)"
+                           class="w-28 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-white text-sm font-mono focus:outline-none focus:border-brand" />
+                    <div id="headerSwatch" class="ml-auto w-24 h-10 rounded-lg flex-shrink-0"
                          style="background-color: @header"></div>
                 </div>
                 <div class="flex flex-wrap gap-2">
@@ -379,8 +379,8 @@ function previewLogo(input) {
 }
 
 function updateColorPreview(hex) {
-    document.getElementById('colorHex').textContent = hex;
     document.getElementById('colorSwatch').style.backgroundColor = hex;
+    document.getElementById('accentHexInput').value = hex;
 }
 
 function setColor(hex) {
@@ -389,13 +389,22 @@ function setColor(hex) {
 }
 
 function updateHeaderPreview(hex) {
-    document.getElementById('headerHex').textContent = hex;
     document.getElementById('headerSwatch').style.backgroundColor = hex;
+    document.getElementById('headerHexInput').value = hex;
 }
 
 function setHeaderColor(hex) {
     document.getElementById('headerColor').value = hex;
     updateHeaderPreview(hex);
+}
+
+function onHexInput(textInput, colorInputId, previewFn) {
+    var val = textInput.value.trim();
+    if (!val.startsWith('#')) val = '#' + val;
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+        document.getElementById(colorInputId).value = val;
+        previewFn(val);
+    }
 }
 
 function toggleMobileMenu() {
