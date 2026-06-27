@@ -99,21 +99,21 @@ namespace RoofingLeadGeneration.Services
                     {
                         header.Background(NavyDark).Padding(0).Column(col =>
                         {
-                            // Accent strip — uses org color
-                            col.Item().Background(accentHex).Height(6);
+                            // Bold accent strip at top — brand color
+                            col.Item().Background(accentHex).Height(10);
 
-                            col.Item().Padding(28).Row(row =>
+                            col.Item().Padding(24).Row(row =>
                             {
                                 row.RelativeItem().Column(inner =>
                                 {
                                     inner.Item().Text("HAIL DAMAGE REPORT")
-                                        .FontSize(22).Bold().FontColor(White);
-                                    inner.Item().Text("Informational Property Assessment")
-                                        .FontSize(11).FontColor(SlateLight);
+                                        .FontSize(22).Bold().FontColor(accentHex);
+                                    inner.Item().PaddingTop(3).Text("Informational Property Assessment")
+                                        .FontSize(10).FontColor(SlateLight);
                                 });
 
                                 // Right side: logo image if available, else company name text
-                                row.ConstantItem(160).AlignRight().AlignMiddle().Column(inner =>
+                                row.ConstantItem(180).AlignRight().AlignMiddle().Column(inner =>
                                 {
                                     if (logoBytes != null && logoBytes.Length > 0)
                                     {
@@ -123,10 +123,16 @@ namespace RoofingLeadGeneration.Services
                                     else
                                     {
                                         inner.Item().AlignRight().Text(companyName)
-                                            .FontSize(15).Bold().FontColor(White);
+                                            .FontSize(15).Bold().FontColor(accentHex);
+                                        if (!string.IsNullOrWhiteSpace(companyWeb))
+                                            inner.Item().AlignRight().PaddingTop(3).Text(companyWeb)
+                                                .FontSize(8).FontColor(SlateLight);
                                     }
                                 });
                             });
+
+                            // Bottom accent line
+                            col.Item().Background(accentHex).Height(2);
                         });
                     });
 
