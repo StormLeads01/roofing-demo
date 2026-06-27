@@ -479,7 +479,7 @@ function buildRow(lead) {
             : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
              '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
-             '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></a>' +
+             '<button onclick="downloadReport(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></button>' +
              penBtn + notesBtn + stormBtn + contactsBtn +
              '<span class="w-7 h-7 flex items-center justify-center" title="Enriched leads are protected"><i class="fa-solid fa-shield-halved text-xs text-slate-600"></i></span></div>';
     } else {
@@ -620,6 +620,32 @@ async function archiveLead(id, btn) {
     } catch (e) { btn.disabled = false; showToast('Archive failed: ' + e.message, false); }
 }
 
+async function downloadReport(id, btn) {
+    const icon = btn.querySelector('i');
+    const origClass = icon ? icon.className : '';
+    btn.disabled = true;
+    if (icon) icon.className = 'fa-solid fa-spinner fa-spin text-xs';
+    try {
+        const resp = await fetch('/Leads/' + id + '/Report');
+        if (resp.status === 402) { window.location.href = '/Billing/Upgrade'; return; }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const blob = await resp.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'HailReport-' + id + '.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        showToast('Report failed: ' + e.message, false);
+    } finally {
+        btn.disabled = false;
+        if (icon) icon.className = origClass;
+    }
+}
+
 async function enrichLead(id, btn) {
     btn.disabled = true;
     var origHtml = btn.innerHTML;
@@ -748,7 +774,7 @@ function buildMobileCard(lead) {
 
     const enrichedBadge = lead.isEnriched ? '<span class="text-xs text-green-400 font-semibold"><i class="fa-solid fa-check-circle mr-1"></i>Enriched</span>' : '';
 
-    const reportBtn = '<a href="/Leads/' + lead.id + '/Report" target="_blank" class="py-2 px-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf"></i></a>';
+    const reportBtn = '<button onclick="downloadReport(' + lead.id + ', this)" class="py-2 px-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf"></i></button>';
     const viewBtn = '<a href="/Leads/' + lead.id + '" class="py-2 px-3.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>';
     const actionBtns = activeTab === 'unenriched'
         ? (canEnrich ? '<button onclick="enrichLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 active:bg-orange-500/30 transition"><i class="fa-solid fa-bolt mr-1"></i>Enrich</button>' : '') +
