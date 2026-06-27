@@ -17,6 +17,11 @@
     let seState     = '';           // detected 2-letter state abbr
     let seInitialized = false;
 
+    let seSelectedDates  = null;    // Set of selected date strings; null = all selected
+    let seSwathCache     = null;    // cached HailSwath GeoJSON for current viewport
+    let seSwathLayer     = null;    // L.layerGroup holding rendered swath polygons
+    let seHoverControl   = null;    // fixed hover info panel (topright)
+
     // Hail Reports overlay state
     let hailReportsLayer   = null;    // Leaflet GeoJSON layer — individual LSR/SPC event dots
     let hailReportsVisible = false;
@@ -365,16 +370,31 @@
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
         );
-        var tileStreet = L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            { attribution: '&copy; CARTO', maxZoom: 19 }
-        );
+        var mtKey = window.MAPTILER_KEY || '';
+        var tileStreet = mtKey
+            ? L.tileLayer(
+                'https://api.maptiler.com/maps/dataviz-dark/{z}/{x}/{y}.png?key=' + mtKey,
+                { attribution: '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: 20, tileSize: 512, zoomOffset: -1 }
+              )
+            : L.tileLayer(
+                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                { attribution: '&copy; CARTO', maxZoom: 19 }
+              );
         tileStreet.addTo(seMap);
         L.control.layers(
             { 'Dark Street': tileStreet, 'Satellite': tileSat },
             {},
             { position: 'topright' }
         ).addTo(seMap);
+
+        // Hover info panel — sits below the layer toggle, updates on swath mouseover
+        seHoverControl = L.control({ position: 'topright' });
+        seHoverControl.onAdd = function () {
+            var div = L.DomUtil.create('div', 'se-hover-panel');
+            div.style.cssText = 'display:none';
+            return div;
+        };
+        seHoverControl.addTo(seMap);
 
         seCircles = L.layerGroup().addTo(seMap);
 
@@ -423,6 +443,7 @@
             .then(function (data) {
                 if (data.state) seState = data.state;
                 seStorms = data.storms || [];
+                seSelectedDates = null;  // reset so new dates are all-selected
                 renderSeCount(seStorms.length);
                 renderSeList(seStorms);
                 renderSeCircles(seStorms);
@@ -436,7 +457,7 @@
             });
     }
 
-    // ── Render event list ─────────────────────────────────────────────────
+    // ── Render event list — grouped by date ──────────────────────────────
     function renderSeList(storms) {
         var list = document.getElementById('seList');
         if (!list) return;
@@ -450,68 +471,79 @@
             return;
         }
 
-        list.innerHTML = storms.map(function (s, i) { return seCardHtml(s, i); }).join('');
-    }
+        // Group clusters by date
+        var byDate = {};
+        storms.forEach(function (s) {
+            var key = s.date || 'unknown';
+            if (!byDate[key]) byDate[key] = [];
+            byDate[key].push(s);
+        });
 
-    function seCardHtml(s, i) {
-        var tier, tierBg, tierBadge, tierIcon;
-        if (s.score >= 70) {
-            tier = 'HOT';
-            tierBg    = 'bg-red-500/10 border-red-500/30';
-            tierBadge = 'bg-red-500/20 text-red-300';
-            tierIcon  = 'text-red-400';
-        } else if (s.score >= 40) {
-            tier = 'ACTIVE';
-            tierBg    = 'bg-orange-500/10 border-orange-500/30';
-            tierBadge = 'bg-orange-500/20 text-orange-300';
-            tierIcon  = 'text-orange-400';
-        } else {
-            tier = 'MINOR';
-            tierBg    = 'bg-slate-700/30 border-slate-600/40';
-            tierBadge = 'bg-slate-600/30 text-slate-400';
-            tierIcon  = 'text-slate-400';
+        // Sort dates descending
+        var dates = Object.keys(byDate).sort(function (a, b) { return b.localeCompare(a); });
+
+        // Init selection to most recent date only
+        if (!seSelectedDates) {
+            seSelectedDates = new Set(dates.length > 0 ? [dates[0]] : []);
         }
 
-        var hailStr    = s.maxHailInches ? s.maxHailInches.toFixed(2) + '"' : '—';
-        var windStr    = s.maxWindMph > 0 ? s.maxWindMph.toFixed(0) + ' mph' : '';
-        var dayStr     = seFormatDate(s.date);
-        var scoreWidth = Math.min(Math.round(s.score), 100);
+        list.innerHTML = dates.map(function (date) {
+            return seDateCardHtml(date, byDate[date]);
+        }).join('');
+    }
 
-        var windChip = s.maxWindMph > 0
-            ? '<span class="flex items-center gap-1 text-blue-300 font-semibold text-sm">' +
-              '<i class="fa-solid fa-wind text-blue-400 text-xs"></i>' + windStr + '</span>'
-            : '';
+    function seDateCardHtml(date, clusters) {
+        var maxHail    = clusters.reduce(function (m, s) { return Math.max(m, s.maxHailInches || 0); }, 0);
+        var maxScore   = clusters.reduce(function (m, s) { return Math.max(m, s.score || 0); }, 0);
+        var totalRpts  = clusters.reduce(function (m, s) { return m + (s.hailReports || 0); }, 0);
+        var maxWind    = clusters.reduce(function (m, s) { return Math.max(m, s.maxWindMph || 0); }, 0);
+        var selected   = !seSelectedDates || seSelectedDates.has(date);
 
-        var windMeta = s.windReports > 0
-            ? '<span><i class="fa-solid fa-wind text-blue-500/60 mr-0.5"></i>' + s.windReports + ' wind</span>'
-            : '';
+        var color      = swathColor(maxHail || 0.75);
+        var hailStr    = maxHail ? maxHail.toFixed(2) + '"' : '—';
+        var dayStr     = seFormatDate(date);
+        var scoreWidth = Math.min(Math.round(maxScore), 100);
 
-        return '<div id="se-card-' + i + '" class="se-card rounded-xl border px-4 py-3.5 cursor-pointer ' +
-               'transition-all hover:brightness-110 active:scale-[0.99] mb-2 ' + tierBg + '" ' +
-               'onclick="seSelectCard(' + i + ')">' +
+        var tier, tierBg, tierBadge;
+        if (maxScore >= 70) {
+            tier = 'HOT';   tierBg = 'border-red-500/30';    tierBadge = 'bg-red-500/20 text-red-300';
+        } else if (maxScore >= 40) {
+            tier = 'ACTIVE'; tierBg = 'border-orange-500/30'; tierBadge = 'bg-orange-500/20 text-orange-300';
+        } else {
+            tier = 'MINOR';  tierBg = 'border-slate-600/40';  tierBadge = 'bg-slate-600/30 text-slate-400';
+        }
+
+        var opacity = selected ? '' : 'opacity-40';
+
+        return '<div class="se-date-card rounded-xl border px-4 py-3.5 mb-2 cursor-pointer ' +
+               'transition-all hover:brightness-110 active:scale-[0.99] ' +
+               (selected ? 'bg-slate-800/60 ' : 'bg-slate-900/40 ') + tierBg + ' ' + opacity + '" ' +
+               'onclick="seToggleDate(\'' + date + '\')" ' +
+               'id="se-date-' + date + '">' +
 
                '<div class="flex items-start justify-between gap-2">' +
-               '<div class="min-w-0">' +
+               '<div class="min-w-0 flex-1">' +
                '<div class="flex items-center gap-2 mb-1.5">' +
                '<span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ' + tierBadge + '">' + tier + '</span>' +
-               '<span class="text-xs text-slate-500">' + dayStr + '</span>' +
+               '<span class="text-sm font-semibold text-white">' + dayStr + '</span>' +
                '</div>' +
                '<div class="flex items-baseline gap-3 flex-wrap">' +
-               '<span class="text-2xl font-extrabold ' + tierIcon + '" style="line-height:1">' + hailStr + '</span>' +
-               '<span class="text-xs text-slate-500">hail</span>' +
-               windChip +
+               '<span class="text-2xl font-extrabold" style="color:' + color + ';line-height:1">' + hailStr + '</span>' +
+               '<span class="text-xs text-slate-500">max hail</span>' +
+               (maxWind > 0 ? '<span class="text-xs text-blue-400"><i class="fa-solid fa-wind mr-0.5"></i>' + maxWind.toFixed(0) + ' mph</span>' : '') +
                '</div>' +
                '</div>' +
-               '<div class="text-right flex-shrink-0">' +
-               '<div class="text-lg font-bold text-white leading-none">' + Math.round(s.score) + '</div>' +
-               '<div class="text-xs text-slate-600 mt-0.5">score</div>' +
+               '<div class="flex flex-col items-end gap-1.5 flex-shrink-0">' +
+               '<div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ' +
+               (selected ? 'border-brand bg-brand/20' : 'border-slate-600 bg-transparent') + '">' +
+               (selected ? '<i class="fa-solid fa-check text-brand" style="font-size:9px"></i>' : '') +
+               '</div>' +
+               '<span class="text-xs text-slate-600">' + clusters.length + ' cluster' + (clusters.length !== 1 ? 's' : '') + '</span>' +
                '</div>' +
                '</div>' +
 
                '<div class="mt-2.5 flex items-center gap-3 text-xs text-slate-600">' +
-               '<span><i class="fa-solid fa-location-dot mr-0.5"></i>' +
-               s.hailReports + ' report' + (s.hailReports !== 1 ? 's' : '') + '</span>' +
-               windMeta +
+               '<span><i class="fa-solid fa-location-dot mr-0.5"></i>' + totalRpts + ' report' + (totalRpts !== 1 ? 's' : '') + '</span>' +
                '<div class="flex-1"></div>' +
                '<div class="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">' +
                '<div class="h-full rounded-full bg-gradient-to-r from-orange-500 to-red-500 transition-all" ' +
@@ -522,35 +554,171 @@
                '</div>';
     }
 
-    // ── Map circles ───────────────────────────────────────────────────────
+    /** Toggle a date's swath on/off from the left panel. */
+    window.seToggleDate = function (date) {
+        if (!seSelectedDates) return;
+        if (seSelectedDates.has(date)) {
+            seSelectedDates.delete(date);
+        } else {
+            seSelectedDates.add(date);
+        }
+        // Update card appearance without full re-render
+        var storms = seStorms;
+        var byDate = {};
+        storms.forEach(function (s) {
+            var key = s.date || 'unknown';
+            if (!byDate[key]) byDate[key] = [];
+            byDate[key].push(s);
+        });
+        var card = document.getElementById('se-date-' + date);
+        if (card) {
+            var newHtml = seDateCardHtml(date, byDate[date] || []);
+            var tmp = document.createElement('div');
+            tmp.innerHTML = newHtml;
+            card.replaceWith(tmp.firstElementChild);
+        }
+        applySwathFilter();
+    };
+
+    // ── Storm swath rendering ─────────────────────────────────────────────
     function renderSeCircles(storms) {
-        if (!seCircles) return;
+        if (!seCircles || !seMap) return;
         seCircles.clearLayers();
+        if (seSwathLayer) { seMap.removeLayer(seSwathLayer); seSwathLayer = null; }
+        seSwathCache = null;
+        if (!storms || storms.length === 0) return;
 
+        // Dot markers on top for every cluster (always visible)
         storms.forEach(function (s, i) {
-            var color  = s.score >= 70 ? '#ef4444' : s.score >= 40 ? '#f97316' : '#eab308';
-            var radius = Math.max(800, Math.min(6000, s.maxHailInches * 1800));
-
-            var circle = L.circle([s.lat, s.lng], {
-                radius:      radius,
-                color:       color,
-                fillColor:   color,
-                fillOpacity: 0.15,
-                weight:      1.5,
-                opacity:     0.75
+            var dot = L.circleMarker([s.lat, s.lng], {
+                radius: 5, color: '#fff',
+                fillColor: swathColor(s.maxHailInches || 0.75),
+                fillOpacity: 1, weight: 1.5, zIndexOffset: 1000
             });
-
-            circle.bindTooltip(
-                '<b>' + (s.maxHailInches ? s.maxHailInches.toFixed(2) + '"' : '—') + ' hail</b>' +
+            dot.bindTooltip(
+                '<b>' + (s.maxHailInches || 0.75).toFixed(2) + '" hail</b>' +
                 (s.maxWindMph > 0 ? ' &nbsp;&middot;&nbsp; ' + s.maxWindMph.toFixed(0) + ' mph wind' : '') +
-                '<br>' + seFormatDate(s.date) +
-                '<br>Score: ' + Math.round(s.score),
+                '<br>' + seFormatDate(s.date) + '<br>Score: ' + Math.round(s.score),
                 { direction: 'top', sticky: false }
             );
-
-            circle.on('click', function () { seSelectCard(i); });
-            seCircles.addLayer(circle);
+            dot.on('click', function () { seSelectCard(i); });
+            seCircles.addLayer(dot);
         });
+
+        if (typeof turf === 'undefined') return;
+
+        var bounds   = seMap.getBounds();
+        var lookback = parseInt(document.getElementById('seLookback')?.value || '90', 10);
+
+        fetch('/RoofHealth/HailSwath?' + new URLSearchParams({
+            minLat:       bounds.getSouth().toFixed(4),
+            maxLat:       bounds.getNorth().toFixed(4),
+            minLng:       bounds.getWest().toFixed(4),
+            maxLng:       bounds.getEast().toFixed(4),
+            lookbackDays: lookback
+        }))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (geojson) {
+            if (!geojson || !seMap) return;
+            seSwathCache = (geojson.features || []).filter(function (f) {
+                return f.geometry && f.geometry.type === 'Point';
+            });
+            applySwathFilter();
+        })
+        .catch(function (err) { console.warn('[StormExplorer] HailSwath fetch failed:', err); });
+    }
+
+    /** Re-draw swath polygons using the cached report points + current date selection. */
+    function applySwathFilter() {
+        if (!seMap) return;
+        if (seSwathLayer) { seMap.removeLayer(seSwathLayer); seSwathLayer = null; }
+        var features = seSwathCache;
+        if (!features || features.length === 0 || typeof turf === 'undefined') return;
+
+        seSwathLayer = L.layerGroup().addTo(seMap);
+
+        // Filter to selected dates only
+        var active = features.filter(function (f) {
+            var d = f.properties && f.properties.date;
+            return !seSelectedDates || seSelectedDates.has(d);
+        });
+        if (active.length === 0) return;
+
+        // Group by date
+        var byDate = {};
+        active.forEach(function (f) {
+            var key = (f.properties && f.properties.date) || 'unknown';
+            if (!byDate[key]) byDate[key] = [];
+            byDate[key].push(f);
+        });
+
+        Object.keys(byDate).forEach(function (date) {
+            var pts = byDate[date];
+            var fc  = turf.featureCollection(pts);
+
+            // DBSCAN: separate report points into per-cell clusters (70 km radius)
+            var clustered;
+            try { clustered = turf.clustersDbscan(fc, 70, { minPoints: 2, units: 'kilometers' }); }
+            catch (e) { clustered = null; }
+
+            var clusterMap = {};
+            ((clustered && clustered.features) || pts).forEach(function (f) {
+                var cid = (f.properties && f.properties.cluster != null)
+                    ? f.properties.cluster : 'n_' + Math.random();
+                if (!clusterMap[cid]) clusterMap[cid] = [];
+                clusterMap[cid].push(f);
+            });
+
+            Object.keys(clusterMap).forEach(function (cid) {
+                var members = clusterMap[cid];
+                var maxHail = members.reduce(function (m, f) {
+                    return Math.max(m, (f.properties && f.properties.maxHailIn) || 0);
+                }, 0);
+                var color = swathColor(maxHail || 0.75);
+                var bufKm = Math.max(4, Math.min(12, (maxHail || 0.75) * 4.5));
+                var mfc   = turf.featureCollection(members);
+
+                try {
+                    var hull  = members.length >= 3 ? turf.convex(mfc) : null;
+                    var base  = hull || turf.bboxPolygon(turf.bbox(mfc));
+                    var swath = turf.buffer(base, bufKm,       { units: 'kilometers', steps: 24 });
+                    var glow  = turf.buffer(base, bufKm * 2.0, { units: 'kilometers', steps: 24 });
+
+                    var panelHtml =
+                        '<div style="font-size:13px;min-width:200px">' +
+                        '<div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:10px;border-bottom:1px solid rgba(100,116,139,0.25);padding-bottom:8px">' + seFormatDate(date) + '</div>' +
+                        '<div style="display:flex;align-items:center;gap:10px">' +
+                        '<div style="width:36px;height:36px;border-radius:50%;background:' + color + '22;border:1.5px solid ' + color + '55;display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+                        '<i class="fa-solid fa-cloud-bolt" style="color:' + color + ';font-size:14px"></i>' +
+                        '</div>' +
+                        '<div>' +
+                        '<div style="font-size:15px;font-weight:800;color:#fff;line-height:1.2">Hail up to ' + maxHail.toFixed(2) + '"</div>' +
+                        '<div style="color:#94a3b8;font-size:11px;margin-top:3px">' + members.length + ' report' + (members.length !== 1 ? 's' : '') + '</div>' +
+                        '</div>' +
+                        '</div>' +
+                        '</div>';
+
+                    L.geoJSON(glow, { style: { fillColor: color, fillOpacity: 0.09, color: 'transparent', weight: 0 } }).addTo(seSwathLayer);
+                    L.geoJSON(swath, {
+                        style: { fillColor: color, fillOpacity: 0.36, color: color, weight: 1, opacity: 0.50 },
+                        onEachFeature: function (f, layer) {
+                            layer.on('mouseover', function () {
+                                if (!seHoverControl) return;
+                                var el = seHoverControl.getContainer();
+                                el.innerHTML = panelHtml;
+                                el.style.display = 'block';
+                            });
+                            layer.on('mouseout', function () {
+                                if (seHoverControl) seHoverControl.getContainer().style.display = 'none';
+                            });
+                        }
+                    }).addTo(seSwathLayer);
+                } catch (e) { console.warn('[StormExplorer] swath hull failed:', e); }
+            });
+        });
+
+        // Keep dot markers on top — layerGroup has no bringToFront; lift each child
+        if (seCircles) seCircles.eachLayer(function (l) { if (l.bringToFront) l.bringToFront(); });
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────

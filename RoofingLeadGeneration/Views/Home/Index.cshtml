@@ -29,6 +29,19 @@
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <style>
+        .se-hover-panel {
+            background: rgba(15,20,32,0.97);
+            border: 1px solid rgba(100,116,139,0.35);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            color: #cbd5e1;
+            font-family: inherit;
+            pointer-events: none;
+            margin-top: 8px;
+        }
+    </style>
 
     <!-- Leaflet JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -482,6 +495,8 @@
 
 <script src="~/js/claim-window.js"></script>
 <script src="~/js/site.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<script>window.MAPTILER_KEY = '@ViewBag.MapTilerApiKey';</script>
 <script src="~/js/storm-explorer.js"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@ public class HomeController : Controller
         if (!User.Identity?.IsAuthenticated ?? true)
             return RedirectToAction("Landing");
         ViewBag.GoogleMapsApiKey       = _config["GoogleMaps:ApiKey"] ?? "";
+        ViewBag.MapTilerApiKey         = _config["MapTiler:ApiKey"] ?? "";
         ViewBag.HailSwathPolygons      = _config.GetValue<bool>("FeatureFlags:HailSwathPolygons");
         return View();
     }
