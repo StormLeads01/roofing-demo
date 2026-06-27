@@ -207,6 +207,7 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("orgs", "phone",          "TEXT");
     AddColumnIfMissing("orgs", "website",        "TEXT");
     AddColumnIfMissing("orgs", "accent_color",   "TEXT");
+    AddColumnIfMissing("orgs", "header_color",   "TEXT");
     AddColumnIfMissing("orgs", "tagline",        "TEXT");
     AddColumnIfMissing("orgs", "license_number", "TEXT");
     AddColumnIfMissing("orgs", "logo_path",      "TEXT");

@@ -53,7 +53,7 @@ namespace RoofingLeadGeneration.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Settings(
             string? companyName, string? companyEmail, string? phone,
-            string? website, string? accentColor, string? tagline,
+            string? website, string? accentColor, string? headerColor, string? tagline,
             string? licenseNumber, IFormFile? logoFile, string? removeLogo,
             string? address, string? facebookUrl, string? instagramUrl, string? googleBusinessUrl)
         {
@@ -76,10 +76,13 @@ namespace RoofingLeadGeneration.Controllers
             org.InstagramUrl      = string.IsNullOrWhiteSpace(instagramUrl)      ? null : instagramUrl.Trim();
             org.GoogleBusinessUrl = string.IsNullOrWhiteSpace(googleBusinessUrl) ? null : googleBusinessUrl.Trim();
 
-            // Validate and set accent color
+            // Validate and set brand colors
             if (!string.IsNullOrWhiteSpace(accentColor) &&
                 System.Text.RegularExpressions.Regex.IsMatch(accentColor.Trim(), @"^#[0-9a-fA-F]{6}$"))
                 org.AccentColor = accentColor.Trim();
+            if (!string.IsNullOrWhiteSpace(headerColor) &&
+                System.Text.RegularExpressions.Regex.IsMatch(headerColor.Trim(), @"^#[0-9a-fA-F]{6}$"))
+                org.HeaderColor = headerColor.Trim();
 
             // Handle logo removal
             if (removeLogo == "true" && !string.IsNullOrWhiteSpace(org.LogoPath))

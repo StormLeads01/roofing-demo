@@ -20,6 +20,8 @@ namespace RoofingLeadGeneration.Data.Models
         public string? Website        { get; set; }
         /// <summary>Hex color, e.g. #f97316</summary>
         public string? AccentColor    { get; set; }
+        /// <summary>Header background hex color on PDF reports, e.g. #0f172a</summary>
+        public string? HeaderColor    { get; set; }
         public string? Tagline        { get; set; }
         /// <summary>Contractor / roofing license number shown on PDF</summary>
         public string? LicenseNumber  { get; set; }

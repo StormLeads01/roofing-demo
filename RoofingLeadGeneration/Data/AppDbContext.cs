@@ -38,6 +38,7 @@ namespace RoofingLeadGeneration.Data
                 e.Property(o => o.Phone).HasColumnName("phone");
                 e.Property(o => o.Website).HasColumnName("website");
                 e.Property(o => o.AccentColor).HasColumnName("accent_color");
+                e.Property(o => o.HeaderColor).HasColumnName("header_color");
                 e.Property(o => o.Tagline).HasColumnName("tagline");
                 e.Property(o => o.LicenseNumber).HasColumnName("license_number");
                 e.Property(o => o.LogoPath).HasColumnName("logo_path");

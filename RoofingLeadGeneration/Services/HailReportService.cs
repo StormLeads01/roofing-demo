@@ -65,6 +65,7 @@ namespace RoofingLeadGeneration.Services
             var tagline      = org?.Tagline;
             var licenseNo    = org?.LicenseNumber;
             var accentHex    = !string.IsNullOrWhiteSpace(org?.AccentColor)   ? org!.AccentColor!  : BrandOrange;
+            var headerHex    = !string.IsNullOrWhiteSpace(org?.HeaderColor)   ? org!.HeaderColor!  : NavyDark;
 
             var riskColor = lead.RiskLevel switch
             {
@@ -97,7 +98,7 @@ namespace RoofingLeadGeneration.Services
                     // ── Header bar ───────────────────────────────────────────
                     page.Header().Element(header =>
                     {
-                        header.Background(NavyDark).Padding(0).Column(col =>
+                        header.Background(headerHex).Padding(0).Column(col =>
                         {
                             // Bold accent strip at top — brand color
                             col.Item().Background(accentHex).Height(10);
@@ -385,7 +386,7 @@ namespace RoofingLeadGeneration.Services
                     });
 
                     // ── Footer ───────────────────────────────────────────
-                    page.Footer().Background(NavyDark).Padding(16).Row(row =>
+                    page.Footer().Background(headerHex).Padding(16).Row(row =>
                     {
                         row.RelativeItem().Column(col =>
                         {

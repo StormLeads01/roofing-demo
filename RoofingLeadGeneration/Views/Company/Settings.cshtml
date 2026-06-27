@@ -2,6 +2,7 @@
 @{
     Layout = null;
     var accent  = Model.AccentColor ?? "#f97316";
+    var header  = Model.HeaderColor ?? "#0f172a";
     var isAdmin = ViewBag.IsAdmin is true;
 }
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
@@ -224,35 +225,59 @@
                 </div>
             </div>
 
-            <!-- ── Brand color ───────────────────────────────────────── -->
+            <!-- ── Brand colors ───────────────────────────────────────── -->
             <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-6">
                 <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
-                    <i class="fa-solid fa-palette text-brand mr-2 text-xs"></i>Brand color
+                    <i class="fa-solid fa-palette text-brand mr-2 text-xs"></i>Brand colors
                 </h2>
-                <div class="flex items-center gap-4">
+
+                <!-- Accent color -->
+                <p class="text-xs text-slate-400 mb-2">Accent color — used for title text and strip on PDF reports</p>
+                <div class="flex items-center gap-4 mb-5">
                     <input type="color" name="accentColor" id="accentColor"
                            value="@accent"
                            oninput="updateColorPreview(this.value)"
                            class="w-12 h-12 rounded-xl border-2 border-slate-600 cursor-pointer bg-transparent p-0.5" />
                     <div>
                         <p class="text-white text-sm font-semibold" id="colorHex">@accent</p>
-                        <p class="text-slate-400 text-xs mt-0.5">Used as the header accent on PDF reports</p>
                     </div>
                     <div id="colorSwatch" class="ml-auto w-32 h-10 rounded-xl"
                          style="background-color: @accent"></div>
                 </div>
-
-                <!-- Quick presets -->
-                <div class="flex flex-wrap gap-2 mt-4">
+                <div class="flex flex-wrap gap-2 mb-6">
                     @foreach (var (name, hex) in new[] {
                         ("Storm Orange", "#f97316"), ("Sky Blue", "#0ea5e9"),
                         ("Forest Green", "#22c55e"), ("Storm Red", "#ef4444"),
                         ("Royal Purple", "#8b5cf6"), ("Slate", "#64748b")
                     })
                     {
-                        <button type="button"
-                                onclick="setColor('@hex')"
-                                title="@name"
+                        <button type="button" onclick="setColor('@hex')" title="@name"
+                                class="w-7 h-7 rounded-lg border-2 border-slate-700 hover:border-white transition-colors"
+                                style="background-color: @hex"></button>
+                    }
+                </div>
+
+                <!-- Header background color -->
+                <p class="text-xs text-slate-400 mb-2">Header background color — used behind your company name on PDF reports</p>
+                <div class="flex items-center gap-4 mb-3">
+                    <input type="color" name="headerColor" id="headerColor"
+                           value="@header"
+                           oninput="updateHeaderPreview(this.value)"
+                           class="w-12 h-12 rounded-xl border-2 border-slate-600 cursor-pointer bg-transparent p-0.5" />
+                    <div>
+                        <p class="text-white text-sm font-semibold" id="headerHex">@header</p>
+                    </div>
+                    <div id="headerSwatch" class="ml-auto w-32 h-10 rounded-xl"
+                         style="background-color: @header"></div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    @foreach (var (name, hex) in new[] {
+                        ("Navy", "#0f172a"), ("Charcoal", "#1e293b"),
+                        ("Dark Blue", "#1e3a5f"), ("Dark Green", "#14532d"),
+                        ("Black", "#111111"), ("Slate Gray", "#374151")
+                    })
+                    {
+                        <button type="button" onclick="setHeaderColor('@hex')" title="@name"
                                 class="w-7 h-7 rounded-lg border-2 border-slate-700 hover:border-white transition-colors"
                                 style="background-color: @hex"></button>
                     }
@@ -361,6 +386,16 @@ function updateColorPreview(hex) {
 function setColor(hex) {
     document.getElementById('accentColor').value = hex;
     updateColorPreview(hex);
+}
+
+function updateHeaderPreview(hex) {
+    document.getElementById('headerHex').textContent = hex;
+    document.getElementById('headerSwatch').style.backgroundColor = hex;
+}
+
+function setHeaderColor(hex) {
+    document.getElementById('headerColor').value = hex;
+    updateHeaderPreview(hex);
 }
 
 function toggleMobileMenu() {
