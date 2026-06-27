@@ -51,7 +51,14 @@ namespace RoofingLeadGeneration.Filters
                         {
                             if (!skip)
                             {
-                                context.Result = new RedirectResult("/Billing/Upgrade");
+                                var isAjax = context.HttpContext.Request.Headers["X-Requested-With"] == "XMLHttpRequest"
+                                    || context.HttpContext.Request.Headers["Accept"].ToString().Contains("application/json")
+                                    || !context.HttpContext.Request.Headers["Accept"].ToString().Contains("text/html");
+                                if (isAjax)
+                                    context.Result = new JsonResult(new { error = "trial_expired", message = "Your trial has ended. Please upgrade to continue." })
+                                        { StatusCode = 402 };
+                                else
+                                    context.Result = new RedirectResult("/Billing/Upgrade");
                                 return;
                             }
                         }

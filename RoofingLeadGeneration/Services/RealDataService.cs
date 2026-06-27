@@ -1159,39 +1159,37 @@ out center;";
                 (startTime.AddYears(1), endTime)
             };
 
-            foreach (var (from, to) in windows)
+            async Task FetchWindow((DateTime from, DateTime to) w)
             {
+                var url = "v4/timelines" +
+                          $"?location={lat},{lng}" +
+                          "&fields=precipitationType,precipitationIntensity,weatherCode" +
+                          "&timesteps=1d" +
+                          $"&startTime={w.from:yyyy-MM-ddTHH:mm:ssZ}" +
+                          $"&endTime={w.to:yyyy-MM-ddTHH:mm:ssZ}" +
+                          "&units=imperial" +
+                          $"&apikey={apiKey}";
                 try
                 {
-                    // Timelines API — daily timestep, imperial units
-                    var url = "v4/timelines" +
-                              $"?location={lat},{lng}" +
-                              "&fields=precipitationType,precipitationIntensity,weatherCode" +
-                              "&timesteps=1d" +
-                              $"&startTime={from:yyyy-MM-ddTHH:mm:ssZ}" +
-                              $"&endTime={to:yyyy-MM-ddTHH:mm:ssZ}" +
-                              "&units=imperial" +
-                              $"&apikey={apiKey}";
-
                     using var client = _httpFactory.CreateClient("tomorrow");
                     var resp = await client.GetAsync(url);
                     var body = await resp.Content.ReadAsStringAsync();
-
                     if (!resp.IsSuccessStatusCode)
                     {
                         _logger.LogWarning("Tomorrow.io returned {Status}: {Body}",
                             resp.StatusCode, body.Length > 300 ? body[..300] : body);
-                        continue;
+                        return;
                     }
-
-                    ParseTomorrowIoTimeline(body, lat, lng, results);
+                    lock (results) ParseTomorrowIoTimeline(body, lat, lng, results);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Tomorrow.io fetch failed for window {From:yyyy-MM-dd}:{To:yyyy-MM-dd}",
-                        from, to);
+                    _logger.LogError(ex, "Tomorrow.io fetch failed for window {From:yyyy-MM-dd}",
+                        w.from);
                 }
             }
+
+            await Task.WhenAll(windows.Select(FetchWindow));
 
             _logger.LogInformation("Tomorrow.io returned {Count} hail events near {Lat},{Lng}",
                 results.Count, lat, lng);

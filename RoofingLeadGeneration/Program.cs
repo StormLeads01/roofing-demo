@@ -102,7 +102,7 @@ builder.Services.AddHttpClient("whitepages", c =>
 builder.Services.AddHttpClient("tomorrow", c =>
 {
     c.BaseAddress = new Uri("https://api.tomorrow.io/");
-    c.Timeout     = TimeSpan.FromSeconds(20);
+    c.Timeout     = TimeSpan.FromSeconds(15);
     c.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
 });
 

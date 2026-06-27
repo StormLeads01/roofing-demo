@@ -536,8 +536,7 @@ namespace RoofingLeadGeneration.Controllers
             // Fallback: if still no hail data at all, try NOAA Storm Events (ground-truth reports)
             if (hailEvents.Count == 0 && !string.IsNullOrEmpty(stateAbbr))
             {
-                var stormEvents = await _realData.GetStormEventsHailAsync(
-                    centerLat, centerLng, radiusMiles, stateAbbr);
+                var stormEvents = await SafeStormEvents(centerLat, centerLng, radiusMiles, stateAbbr);
                 hailEvents.AddRange(stormEvents);
             }
 

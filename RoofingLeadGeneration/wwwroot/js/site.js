@@ -74,8 +74,12 @@
             const resp = await fetch(url);
 
             if (!resp.ok) {
+                if (resp.status === 402) {
+                    window.location.href = '/Billing/Upgrade';
+                    return;
+                }
                 const err = await resp.json().catch(() => ({ error: 'Server error' }));
-                throw new Error(err.error || `HTTP ${resp.status}`);
+                throw new Error(err.message || err.error || `HTTP ${resp.status}`);
             }
 
             const data = await resp.json();
