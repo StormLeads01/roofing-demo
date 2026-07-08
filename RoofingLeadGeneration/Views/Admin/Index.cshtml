@@ -64,6 +64,19 @@
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
+    @if (TempData["AdminOk"] != null)
+    {
+        <div class="mb-6 rounded-xl border border-green-500/30 bg-green-500/10 text-green-300 px-4 py-3 text-sm">
+            <i class="fa-solid fa-circle-check mr-2"></i>@TempData["AdminOk"]
+        </div>
+    }
+    @if (TempData["AdminError"] != null)
+    {
+        <div class="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 px-4 py-3 text-sm">
+            <i class="fa-solid fa-triangle-exclamation mr-2"></i>@TempData["AdminError"]
+        </div>
+    }
+
     <!-- Platform stats -->
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <div class="stat-card">
@@ -114,6 +127,8 @@
                         @if (enrichmentEnabled) { <th class="text-left">Enrichments</th> }
                         <th class="text-left">Last Lead</th>
                         <th class="text-left">Joined</th>
+                        <th class="text-left">Plan / Trial</th>
+                        <th class="text-left">Manage Access</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -123,6 +138,30 @@
                         {
                             var joined = u.CreatedAt.ToString("yyyy-MM-dd");
                             var lastLead = u.LastLeadAt.HasValue ? u.LastLeadAt.Value.ToString("yyyy-MM-dd") : "—";
+                            var planLabel = string.IsNullOrEmpty(u.Plan) ? "—" : u.Plan;
+                            string trialText;
+                            string trialCls;
+                            if (u.OrgId == null)
+                            {
+                                trialText = "no org";
+                                trialCls  = "text-slate-500";
+                            }
+                            else if (u.TrialEndsAt == null)
+                            {
+                                trialText = "Unlimited";
+                                trialCls  = "text-green-400";
+                            }
+                            else if (u.TrialEndsAt.Value < DateTime.UtcNow)
+                            {
+                                trialText = "Expired";
+                                trialCls  = "text-red-400";
+                            }
+                            else
+                            {
+                                var d = (int)Math.Ceiling((u.TrialEndsAt.Value - DateTime.UtcNow).TotalDays);
+                                trialText = d + " day" + (d == 1 ? "" : "s") + " left";
+                                trialCls  = "text-slate-300";
+                            }
                             <tr>
                                 <td>
                                     <p class="font-semibold text-white text-xs">@(string.IsNullOrEmpty(u.DisplayName) ? "—" : u.DisplayName)</p>
@@ -141,13 +180,45 @@
                                 @if (enrichmentEnabled) { <td class="font-semibold text-white">@u.EnrichCount</td> }
                                 <td class="text-slate-400 whitespace-nowrap">@lastLead</td>
                                 <td class="text-slate-400 whitespace-nowrap">@joined</td>
+                                <td class="whitespace-nowrap">
+                                    <span class="px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 border border-slate-600 text-xs">@planLabel</span>
+                                    <span class="ml-1.5 text-xs @trialCls">@trialText</span>
+                                </td>
+                                <td class="whitespace-nowrap">
+                                    @if (u.OrgId != null)
+                                    {
+                                        <div class="flex flex-col gap-1.5">
+                                            <form method="post" action="/Admin/Users/@u.Id/Plan" class="flex items-center gap-1">
+                                                @Html.AntiForgeryToken()
+                                                <select name="plan" class="bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1">
+                                                    <option value="free" selected="@(u.Plan == "free" ? "selected" : null)">free</option>
+                                                    <option value="pro" selected="@(u.Plan == "pro" ? "selected" : null)">pro</option>
+                                                    <option value="agency" selected="@(u.Plan == "agency" ? "selected" : null)">agency</option>
+                                                </select>
+                                                <button type="submit" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Set plan</button>
+                                            </form>
+                                            <form method="post" action="/Admin/Users/@u.Id/Trial" class="flex items-center gap-1">
+                                                @Html.AntiForgeryToken()
+                                                <input type="number" name="days" value="14" min="0" class="w-14 bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1" />
+                                                <button type="submit" name="op" value="set" class="px-2 py-1 rounded bg-brand hover:bg-brand-dark text-white text-xs">Set</button>
+                                                <button type="submit" name="op" value="extend" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">+Extend</button>
+                                                <button type="submit" name="op" value="unlimited" class="px-2 py-1 rounded bg-green-600/80 hover:bg-green-600 text-white text-xs" title="Never gated">&#8734;</button>
+                                                <button type="submit" name="op" value="expire" class="px-2 py-1 rounded bg-red-600/80 hover:bg-red-600 text-white text-xs">Expire</button>
+                                            </form>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-600 text-xs">—</span>
+                                    }
+                                </td>
                             </tr>
                         }
                     }
                     else
                     {
                         <tr>
-                            <td colspan="6" class="text-center text-slate-500 py-10 text-sm">
+                            <td colspan="8" class="text-center text-slate-500 py-10 text-sm">
                                 <i class="fa-solid fa-users text-3xl text-slate-700 block mb-2"></i>
                                 No users yet
                             </td>

@@ -486,8 +486,8 @@
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">
                     <p class="text-slate-500 mb-0.5">Nearby Events</p>
                     <p class="text-slate-200 font-semibold"><i class="fa-solid fa-cloud-bolt text-brand mr-1"></i>${(function(){
-                        const n = nearbyHailCount(p.lat, p.lng, 2);
-                        return n > 0 ? `${n} hail event${n !== 1 ? 's' : ''} (2 mi)` : 'None recorded';
+                        const n = nearbyHailCount(p.lat, p.lng, 10);
+                        return n > 0 ? `${n} hail event${n !== 1 ? 's' : ''} (10 mi)` : 'None recorded';
                     })()}</p>
                 </div>
                 <div class="bg-slate-900/50 rounded-lg px-3 py-2">

@@ -63,7 +63,7 @@
             <a href="/Help" class="hover:text-white transition-colors">
                 <i class="fa-solid fa-circle-question mr-1 text-xs"></i>Help
             </a>
-            @if ((User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "") == Configuration["AdminEmail"]) {
+            @if (string.Equals(User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "", Configuration["AdminEmail"], System.StringComparison.OrdinalIgnoreCase)) {
                 <a href="/Admin" class="text-orange-400 hover:text-orange-300 transition-colors text-xs">
                     <i class="fa-solid fa-shield-halved mr-1"></i>Admin
                 </a>
@@ -134,15 +134,8 @@
 ══════════════════════════════════════════════════════════════ -->
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-1 overflow-x-auto">
     <div class="inline-flex min-w-full sm:min-w-0 rounded-xl bg-slate-800 border border-slate-700 p-1 gap-1">
-        <button id="tabUnenriched" onclick="switchLeadTab('unenriched')"
-            class="lead-tab lead-tab-active flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
-            <i class="fa-solid fa-bolt text-orange-400"></i>
-            <span class="hidden sm:inline">New Leads</span>
-            <span class="sm:hidden">New</span>
-            <span id="tabUnenrichedCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>
-        </button>
         <button id="tabPipeline" onclick="switchLeadTab('pipeline')"
-            class="lead-tab flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
+            class="lead-tab lead-tab-active flex-1 flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap">
             <i class="fa-solid fa-filter text-sky-400"></i>
             Pipeline
             <span id="tabPipelineCount" class="px-2 py-0.5 rounded-full bg-slate-700/80 text-xs font-bold text-slate-300"></span>

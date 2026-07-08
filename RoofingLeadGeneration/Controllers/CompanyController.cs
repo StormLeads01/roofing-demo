@@ -19,7 +19,7 @@ namespace RoofingLeadGeneration.Controllers
             long.TryParse(User.FindFirst("user_org_id")?.Value, out var id) ? id : null;
 
         private bool IsAdmin() =>
-            (User.FindFirst(ClaimTypes.Email)?.Value ?? "") == _adminEmail;
+            string.Equals(User.FindFirst(ClaimTypes.Email)?.Value ?? "", _adminEmail, StringComparison.OrdinalIgnoreCase);
 
         public CompanyController(AppDbContext db, IWebHostEnvironment env,
                                  ILogger<CompanyController> logger, IConfiguration config)

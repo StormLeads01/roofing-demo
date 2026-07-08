@@ -159,45 +159,67 @@ namespace RoofingLeadGeneration.Controllers
         // To use locally: ASPNETCORE_ENVIRONMENT=Development (the default for `dotnet run`).
 
         [HttpGet("HailDebug")]
-        public async Task<IActionResult> HailDebug(double lat = 32.54, double lng = -96.86, string state = "TX")
+        public async Task<IActionResult> HailDebug(double lat = 0, double lng = 0, string state = "", string address = "")
         {
             if (!_env.IsDevelopment())
                 return NotFound();
 
-            var swdiTask     = SafeSwdi(lat, lng, 5.0);
-            var lsrTask      = SafeLsr(lat, lng, 5.0, state);
-            var tomorrowTask = SafeTomorrow(lat, lng);
-            await Task.WhenAll(swdiTask, lsrTask, tomorrowTask);
-
-            var swdiEvents     = swdiTask.Result;
-            var lsrEvents      = lsrTask.Result;
-            var tomorrowEvents = tomorrowTask.Result;
-
-            // Also probe a single raw SWDI URL so we can see what the API actually returns
-            double span  = 5.0 / 69.0;
-            var probeUrl = $"https://www.ncei.noaa.gov/swdiws/json/nx3hail" +
-                           $"/{DateTime.UtcNow.AddDays(-121).AddDays(-30):yyyyMMdd}" +
-                           $":{DateTime.UtcNow.AddDays(-121):yyyyMMdd}" +
-                           $"?bbox={Math.Round(lng-span,4)},{Math.Round(lat-span,4)}" +
-                           $",{Math.Round(lng+span,4)},{Math.Round(lat+span,4)}";
-
-            string probeBody = "";
-            try
+            // Accept an address directly — geocode when coords aren't supplied.
+            if (!string.IsNullOrWhiteSpace(address) && (lat == 0 || lng == 0))
             {
-                using var c = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                c.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
-                var r = await c.GetAsync(probeUrl);
-                probeBody = await r.Content.ReadAsStringAsync();
-                probeBody = probeBody.Length > 400 ? probeBody[..400] : probeBody;
+                var geo = await GeocodeAsync(address);
+                if (geo != null)
+                {
+                    lat = geo.Lat;
+                    lng = geo.Lng;
+                    if (string.IsNullOrWhiteSpace(state)) state = geo.StateAbbr;
+                }
             }
-            catch (Exception ex) { probeBody = ex.Message; }
+            if (lat == 0 && lng == 0)
+                return BadRequest(new { error = "Provide lat+lng, or address=... to geocode." });
+            if (string.IsNullOrWhiteSpace(state))
+                state = await _realData.GetStateFromLatLngAsync(lat, lng);
+
+            // Fetch wide (10 mi), then report how many land in each radius band —
+            // this reveals whether the 2-mile display filter is dropping events
+            // (bands grow with radius) vs a genuine no-data gap (all bands 0).
+            const double fetch = 10.0;
+            var swdiTask     = SafeSwdi(lat, lng, fetch);
+            var lsrTask      = SafeLsr(lat, lng, fetch, state);
+            var seTask       = SafeStormEvents(lat, lng, fetch, state);
+            var tomorrowTask = SafeTomorrow(lat, lng);
+            await Task.WhenAll(swdiTask, lsrTask, seTask, tomorrowTask);
+
+            var fiveYearsAgo = DateTime.UtcNow.AddYears(-5);
+
+            object Band(List<RealDataService.HailEvent> evs)
+            {
+                var recent = evs.Where(e => e.Date >= fiveYearsAgo).ToList();
+                double Miles(RealDataService.HailEvent e) =>
+                    RealDataService.HaversineDistanceMiles(lat, lng, e.Lat, e.Lng);
+                return new
+                {
+                    within2  = recent.Count(e => Miles(e) <= 2.0),
+                    within5  = recent.Count(e => Miles(e) <= 5.0),
+                    within10 = recent.Count(e => Miles(e) <= 10.0),
+                    nearest  = recent.Any() ? Math.Round(recent.Min(Miles), 1) : (double?)null,
+                    sample   = recent.OrderByDescending(e => e.Date).Take(4).Select(e => new
+                    {
+                        date  = e.Date.ToString("yyyy-MM-dd"),
+                        e.SizeInches,
+                        miles = Math.Round(Miles(e), 1),
+                        e.Source
+                    })
+                };
+            }
 
             return Json(new
             {
-                swdi     = new { count = swdiEvents.Count,     sample = swdiEvents.Take(3).Select(e    => new { e.Lat, e.Lng, e.SizeInches, date = e.Date.ToString("yyyy-MM-dd") }) },
-                lsr      = new { count = lsrEvents.Count,      sample = lsrEvents.Take(3).Select(e     => new { e.Lat, e.Lng, e.SizeInches, date = e.Date.ToString("yyyy-MM-dd") }) },
-                tomorrow = new { count = tomorrowEvents.Count, sample = tomorrowEvents.Take(3).Select(e => new { e.Lat, e.Lng, e.SizeInches, date = e.Date.ToString("yyyy-MM-dd"), e.Source }) },
-                rawSwdiProbe = new { url = probeUrl, bodyPreview = probeBody }
+                query       = new { lat, lng, state, note = "counts are over the last 5 years; display filter is 2 mi" },
+                swdi        = Band(swdiTask.Result),
+                lsr         = Band(lsrTask.Result),
+                stormEvents = Band(seTask.Result),
+                tomorrow    = Band(tomorrowTask.Result)
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         }
 
@@ -267,9 +289,19 @@ namespace RoofingLeadGeneration.Controllers
                 if (m.Success) stateAbbr = m.Groups[1].Value;
             }
 
-            // Fetch hail data only — no OSM neighbour scan
-            const double hailRadius = 2.0;
-            var cacheKey = $"hail:{Math.Round(lat, 1)}:{Math.Round(lng, 1)}:{stateAbbr}";
+            // Fall back to reverse-geocoding the state when the address had no
+            // "ST 12345" pattern (lat/lng came from autocomplete, so the geocode
+            // block above was skipped). LSR + Storm-Events need a state or they
+            // return nothing — the main reason rural searches showed zero hail.
+            if (string.IsNullOrWhiteSpace(stateAbbr))
+                stateAbbr = await _realData.GetStateFromLatLngAsync(lat, lng);
+
+            // Fetch hail data only — no OSM neighbour scan.
+            // 10 mi (was 2) to match storm history + the report, so nearby rural
+            // storms show in search results too. Risk scoring still uses a 2-mi
+            // proximity internally (see ComputeRiskFromHail), so this doesn't inflate risk.
+            const double hailRadius = 10.0;
+            var cacheKey = $"hail:{Math.Round(lat, 1)}:{Math.Round(lng, 1)}:{stateAbbr}:r10";
             if (!_cache.TryGetValue(cacheKey, out List<RealDataService.HailEvent>? cachedHail) || cachedHail == null)
             {
                 var swdiTask     = SafeSwdi(lat, lng, hailRadius);
@@ -422,14 +454,21 @@ namespace RoofingLeadGeneration.Controllers
             // Use a wider fetch radius so SWDI radar-pixel offsets don't exclude nearby hits,
             // then filter down to 2 miles for display.
             const double fetchRadius   = 10.0;
-            const double displayRadius = 2.0;
+            // Widened from 2 mi: rural spotter/Storm-Events reports log at the nearest
+            // town/county point, so a 2-mi filter hid real storms. Each event carries its
+            // distance so "hail 6 mi away" stays honest.
+            const double displayRadius = 10.0;
 
             var swdiTask        = SafeSwdi(lat, lng, fetchRadius);
             var lsrTask         = SafeLsr(lat, lng, fetchRadius, stateAbbr);
             var stormEventsTask = SafeStormEvents(lat, lng, fetchRadius, stateAbbr);
             var windTask        = SafeWindHistory(lat, lng, fetchRadius, stateAbbr);
+            // Tomorrow.io fills the NOAA SWDI ~90–120 day radar lag with near-real-time
+            // hail — the property search includes it, so storm history must too, or
+            // recent storms show in search but vanish here.
+            var tomorrowTask    = SafeTomorrow(lat, lng);
 
-            await Task.WhenAll(swdiTask, lsrTask, stormEventsTask, windTask);
+            await Task.WhenAll(swdiTask, lsrTask, stormEventsTask, windTask, tomorrowTask);
 
             var fiveYearsAgo = DateTime.UtcNow.AddYears(-5);
             var oneYearAgo   = DateTime.UtcNow.AddYears(-1);
@@ -439,6 +478,7 @@ namespace RoofingLeadGeneration.Controllers
             allHail.AddRange(swdiTask.Result);
             allHail.AddRange(lsrTask.Result);
             allHail.AddRange(stormEventsTask.Result);
+            allHail.AddRange(tomorrowTask.Result);
 
             var hailList = allHail
                 .Where(e => e.Date >= fiveYearsAgo &&
@@ -450,7 +490,8 @@ namespace RoofingLeadGeneration.Controllers
                 {
                     Date       = e.Date.ToString("yyyy-MM-dd"),
                     SizeInches = Math.Round(e.SizeInches, 2),
-                    Source     = e.Source
+                    Source     = e.Source,
+                    Miles      = Math.Round(RealDataService.HaversineDistanceMiles(lat, lng, e.Lat, e.Lng), 1)
                 })
                 .ToList();
 
@@ -465,7 +506,8 @@ namespace RoofingLeadGeneration.Controllers
                 {
                     Date    = w.Date.ToString("yyyy-MM-dd"),
                     WindMph = (int)Math.Round(w.SpeedMph),
-                    Source  = w.Source
+                    Source  = w.Source,
+                    Miles   = Math.Round(RealDataService.HaversineDistanceMiles(lat, lng, w.Lat, w.Lng), 1)
                 })
                 .ToList();
 
@@ -491,6 +533,12 @@ namespace RoofingLeadGeneration.Controllers
                 if (m.Success) stateAbbr = m.Groups[1].Value;
             }
 
+            // Fall back to reverse-geocoding the state when the address had no
+            // "ST 12345" pattern — LSR + Storm-Events need a state or they return
+            // nothing (the main reason rural searches showed zero hail).
+            if (string.IsNullOrWhiteSpace(stateAbbr))
+                stateAbbr = await _realData.GetStateFromLatLngAsync(centerLat, centerLng);
+
             // ── Start OSM immediately so it runs in parallel with everything else ──
             var osmTask = SafeOsm(centerLat, centerLng, radiusMiles);
 
@@ -498,13 +546,16 @@ namespace RoofingLeadGeneration.Controllers
             // Weather data changes at most once per day — cache for 30 min.
             // Key is snapped to a ~7-mile grid cell so adjacent addresses reuse
             // the same cached data rather than firing a fresh round of API calls.
-            var cacheKey = $"hail:{Math.Round(centerLat, 1)}:{Math.Round(centerLng, 1)}:{stateAbbr}";
+            // Always pull at least 10 mi of hail — ComputeRiskFromHail scores within 10 mi,
+            // so a smaller neighborhood-scan radius must not starve it of nearby storms.
+            var hailFetch = Math.Max(radiusMiles, 10.0);
+            var cacheKey  = $"hail:{Math.Round(centerLat, 1)}:{Math.Round(centerLng, 1)}:{stateAbbr}:h{hailFetch:F0}";
 
             if (!_cache.TryGetValue(cacheKey, out List<RealDataService.HailEvent>? cachedHail) || cachedHail == null)
             {
                 // Fetch all hail sources in parallel — OSM is already running above
-                var swdiTask     = SafeSwdi(centerLat, centerLng, radiusMiles);
-                var mesonetTask  = SafeLsr(centerLat, centerLng, radiusMiles, stateAbbr);
+                var swdiTask     = SafeSwdi(centerLat, centerLng, hailFetch);
+                var mesonetTask  = SafeLsr(centerLat, centerLng, hailFetch, stateAbbr);
                 var tomorrowTask = SafeTomorrow(centerLat, centerLng);
 
                 // Wait for hail AND OSM together so nothing serializes
@@ -610,8 +661,8 @@ namespace RoofingLeadGeneration.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // Map real hail events → risk / hail size / last storm date / claim window
-        //   - High   if any event ≥ 1.50" within 2 miles
-        //   - Medium if any event ≥ 0.75" within 2 miles
+        //   - High   if any event ≥ 1.50" within 10 miles
+        //   - Medium if any event ≥ 0.75" within 10 miles
         //   - Low    if events exist but below threshold
         //   - No data if no events for this area
         //
@@ -635,7 +686,7 @@ namespace RoofingLeadGeneration.Controllers
                     h,
                     dist = RealDataService.HaversineDistanceMiles(lat, lng, h.Lat, h.Lng)
                 })
-                .Where(x => x.dist <= 2.0)
+                .Where(x => x.dist <= 10.0)
                 .ToList();
 
             if (nearby.Count == 0)
@@ -650,7 +701,7 @@ namespace RoofingLeadGeneration.Controllers
 
             string hailSize  = $"{best.h.SizeInches:F2} inch";
 
-            // For claim window: use the MOST RECENT event within 2 miles
+            // For claim window: use the MOST RECENT event within 10 miles
             var mostRecent = nearby.OrderByDescending(x => x.h.Date).First();
             string stormDate = mostRecent.h.Date.ToString("yyyy-MM-dd");
 
@@ -1132,12 +1183,14 @@ namespace RoofingLeadGeneration.Controllers
             [JsonPropertyName("date")]       public string Date       { get; set; } = "";
             [JsonPropertyName("sizeInches")] public double SizeInches { get; set; }
             [JsonPropertyName("source")]     public string Source     { get; set; } = "";
+            [JsonPropertyName("miles")]      public double Miles      { get; set; }
         }
         private class StormHistoryWindDto
         {
             [JsonPropertyName("date")]    public string Date    { get; set; } = "";
             [JsonPropertyName("windMph")] public int    WindMph { get; set; }
             [JsonPropertyName("source")]  public string Source  { get; set; } = "";
+            [JsonPropertyName("miles")]   public double Miles   { get; set; }
         }
 
         private class StormClusterDto

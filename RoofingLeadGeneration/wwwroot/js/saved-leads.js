@@ -3,7 +3,7 @@ let allLeads      = [];
 let sortCol       = 'riskLevel';
 let sortDir       = 'desc';
 let activeFilter  = 'all';
-let activeTab     = 'unenriched';   // 'unenriched' | 'pipeline' | 'closed' | 'archived'
+let activeTab     = 'pipeline';   // 'pipeline' | 'closed' | 'archived'
 let selectedIds   = new Set();
 let editingId      = null;
 let editingNotesId = null;
@@ -26,7 +26,6 @@ function switchLeadTab(tab) {
     viewingStormHistoryId = null;
     showWindIds.clear();
 
-    document.getElementById('tabUnenriched').classList.toggle('lead-tab-active', tab === 'unenriched');
     document.getElementById('tabPipeline').classList.toggle('lead-tab-active',  tab === 'pipeline');
     document.getElementById('tabClosed').classList.toggle('lead-tab-active',    tab === 'closed');
     document.getElementById('tabArchived').classList.toggle('lead-tab-active',   tab === 'archived');
@@ -374,7 +373,7 @@ async function setStatus(id, value) {
         var lead = allLeads.find(function(l) { return l.id === id; });
         if (lead) lead.status = value;
 
-        var pipelineStatuses = ['contacted', 'appointment_set'];
+        var pipelineStatuses = ['new', 'contacted', 'appointment_set'];
         var closedStatuses   = ['closed_won', 'closed_lost'];
         var leavesTab = (activeTab === 'unenriched' && !['new', null].includes(value)) ||
                         (activeTab === 'pipeline'   && !pipelineStatuses.includes(value)) ||
@@ -857,7 +856,7 @@ function buildMobileStormHistoryPanel(id) {
     var showWind = showWindIds.has(id);
 
     if (hail.length === 0 && wind.length === 0) {
-        return '<p class="mt-2 text-slate-500 text-xs italic">No storm events within 2 miles.</p>';
+        return '<p class="mt-2 text-slate-500 text-xs italic">No storm events within 10 miles.</p>';
     }
 
     var hailRows = hail.slice(0, 20).map(function(e) {
@@ -867,6 +866,7 @@ function buildMobileStormHistoryPanel(id) {
                '<i class="fa-solid fa-cloud-bolt text-orange-400 w-3 shrink-0"></i>' +
                '<span class="w-20 shrink-0 text-slate-300 font-mono">' + escapeHtml(e.date) + '</span>' +
                '<span class="text-orange-400 font-semibold">' + e.sizeInches.toFixed(2) + '"' + sizeRef + '</span>' +
+               '<span class="text-slate-500 ml-auto shrink-0">' + (e.miles != null ? e.miles.toFixed(1) + ' mi' : '') + '</span>' +
                '</div>';
     }).join('');
 
@@ -875,6 +875,7 @@ function buildMobileStormHistoryPanel(id) {
                '<i class="fa-solid fa-wind text-sky-400 w-3 shrink-0"></i>' +
                '<span class="w-20 shrink-0 text-slate-300 font-mono">' + escapeHtml(w.date) + '</span>' +
                '<span class="text-sky-400 font-semibold">' + w.windMph + ' mph</span>' +
+               '<span class="text-slate-500 ml-auto shrink-0">' + (w.miles != null ? w.miles.toFixed(1) + ' mi' : '') + '</span>' +
                '</div>';
     }).join('') : '';
 
@@ -957,7 +958,7 @@ function buildStormHistoryExpRow(lead) {
         if (hail.length === 0 && !showWind) {
             innerHtml = headerBar +
                         '<p class="text-slate-500 text-xs italic"><i class="fa-solid fa-cloud-sun mr-1"></i>' +
-                        'No hail events found within 2 miles in the last 5 years.' +
+                        'No hail events found within 10 miles in the last 5 years.' +
                         (wind.length > 0 ? ' Wind data available — click Wind to view.' : '') + '</p>';
         } else {
             var srcBadge = function(src) {
@@ -996,7 +997,9 @@ function buildStormHistoryExpRow(lead) {
                        '<i class="fa-solid fa-cloud-bolt text-orange-400 text-xs w-3 shrink-0"></i>' +
                        '<span class="w-24 shrink-0 text-slate-300 font-mono text-xs">' + escapeHtml(e.date) + '</span>' +
                        '<span class="w-28 shrink-0 text-orange-400 font-semibold text-xs">' + e.sizeInches.toFixed(2) + '"' + sizeRef + '</span>' +
-                       srcBadge(e.source) + '</div>';
+                       srcBadge(e.source) +
+                       '<span class="text-slate-500 text-xs ml-auto shrink-0">' + (e.miles != null ? e.miles.toFixed(1) + ' mi' : '') + '</span>' +
+                       '</div>';
             }).join('');
 
             var windRows = showWind ? wind.map(function(w) {
@@ -1004,7 +1007,9 @@ function buildStormHistoryExpRow(lead) {
                        '<i class="fa-solid fa-wind text-sky-400 text-xs w-3 shrink-0"></i>' +
                        '<span class="w-24 shrink-0 text-slate-300 font-mono text-xs">' + escapeHtml(w.date) + '</span>' +
                        '<span class="w-28 shrink-0 text-sky-400 font-semibold text-xs">' + w.windMph + ' mph gusts</span>' +
-                       srcBadge(w.source) + '</div>';
+                       srcBadge(w.source) +
+                       '<span class="text-slate-500 text-xs ml-auto shrink-0">' + (w.miles != null ? w.miles.toFixed(1) + ' mi' : '') + '</span>' +
+                       '</div>';
             }).join('') : '';
 
             innerHtml = headerBar + statsBar + hailRows + windRows;

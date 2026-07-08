@@ -64,13 +64,16 @@ namespace RoofingLeadGeneration.Controllers
             return View(lead);
         }
 
-        // ── GET /Leads?tab=unenriched|pipeline|closed|archived ───────
+        // ── GET /Leads?tab=pipeline|closed|archived ──────────────────
+        // "New Leads" tab retired — new/unstarted leads now live in the pipeline
+        // (enrichment is disabled, so there's no pre-pipeline step anymore).
         [HttpGet]
-        public async Task<IActionResult> Index(string tab = "unenriched")
+        public async Task<IActionResult> Index(string tab = "pipeline")
         {
             var orgId = CurrentOrgId;
 
-            var pipelineStatuses = new[] { "contacted", "appointment_set" };
+            // Pipeline = everything active and not yet closed, including brand-new leads.
+            var pipelineStatuses = new[] { "new", "contacted", "appointment_set" };
             var closedStatuses   = new[] { "closed_won", "closed_lost" };
 
             IQueryable<Lead> query;
@@ -85,9 +88,8 @@ namespace RoofingLeadGeneration.Controllers
                     .Where(l => (l.OrgId == orgId || l.OrgId == null) && l.DeletedAt == null);
                 query = tab switch
                 {
-                    "pipeline" => query.Where(l => pipelineStatuses.Contains(l.Status)),
                     "closed"   => query.Where(l => closedStatuses.Contains(l.Status)),
-                    _          => query.Where(l => l.Status == "new" || l.Status == null)  // new leads (default)
+                    _          => query.Where(l => l.Status == null || pipelineStatuses.Contains(l.Status))  // pipeline (default)
                 };
             }
 
@@ -242,7 +244,9 @@ namespace RoofingLeadGeneration.Controllers
                     stateAbbr = await _realData.GetStateFromLatLngAsync(lat, lng);
 
                 const double fetch   = 10.0;
-                const double display = 2.0;
+                // Widened from 2 mi to match storm history — rural reports log at the
+                // nearest town, so 2 mi hid real storms. Report shows each event's distance.
+                const double display = 10.0;
                 var fiveYearsAgo = DateTime.UtcNow.AddYears(-5);
                 var oneYearAgo   = DateTime.UtcNow.AddYears(-1);
 
@@ -256,13 +260,20 @@ namespace RoofingLeadGeneration.Controllers
                 var windTask   = string.IsNullOrWhiteSpace(stateAbbr)
                     ? Task.FromResult(new List<RealDataService.WindEvent>())
                     : _realData.GetMesonetLsrWindAsync(lat, lng, fetch, stateAbbr, lookbackDays: 365);
+                // Tomorrow.io fills the NOAA ~90–120 day radar lag with near-real-time hail —
+                // property search includes it, so the report must too or recent storms are missed.
+                var tomorrowKey = HttpContext.RequestServices.GetService<IConfiguration>()?["TomorrowIo:ApiKey"] ?? "";
+                var tomorrowTask = string.IsNullOrWhiteSpace(tomorrowKey)
+                    ? Task.FromResult(new List<RealDataService.HailEvent>())
+                    : _realData.GetTomorrowIoHailAsync(lat, lng, tomorrowKey);
 
-                try { await Task.WhenAll(swdiTask, lsrTask, seTask, windTask); } catch { /* partial results OK */ }
+                try { await Task.WhenAll(swdiTask, lsrTask, seTask, windTask, tomorrowTask); } catch { /* partial results OK */ }
 
                 var allHail = new List<RealDataService.HailEvent>();
-                if (swdiTask.IsCompletedSuccessfully) allHail.AddRange(swdiTask.Result);
-                if (lsrTask.IsCompletedSuccessfully)  allHail.AddRange(lsrTask.Result);
-                if (seTask.IsCompletedSuccessfully)   allHail.AddRange(seTask.Result);
+                if (swdiTask.IsCompletedSuccessfully)     allHail.AddRange(swdiTask.Result);
+                if (lsrTask.IsCompletedSuccessfully)      allHail.AddRange(lsrTask.Result);
+                if (seTask.IsCompletedSuccessfully)       allHail.AddRange(seTask.Result);
+                if (tomorrowTask.IsCompletedSuccessfully) allHail.AddRange(tomorrowTask.Result);
 
                 hailHistory = allHail
                     .Where(e => e.Date >= fiveYearsAgo &&
@@ -483,7 +494,7 @@ namespace RoofingLeadGeneration.Controllers
                 totalLeads              = await activeLeadsQ.CountAsync(),
                 leadsThisMonth          = await activeLeadsQ.CountAsync(l => l.SavedAt >= som),
                 unenrichedCount         = await activeLeadsQ.CountAsync(l => l.Status == "new" || l.Status == null),
-                pipelineCount           = await activeLeadsQ.CountAsync(l => new[] { "contacted", "appointment_set" }.Contains(l.Status)),
+                pipelineCount           = await activeLeadsQ.CountAsync(l => l.Status == null || new[] { "new", "contacted", "appointment_set" }.Contains(l.Status)),
                 closedCount             = await activeLeadsQ.CountAsync(l => new[] { "closed_won", "closed_lost" }.Contains(l.Status)),
                 archivedCount           = await allLeadsQ.CountAsync(l => l.DeletedAt != null),
                 totalEnrichments        = await enrichmentsQ.CountAsync(),

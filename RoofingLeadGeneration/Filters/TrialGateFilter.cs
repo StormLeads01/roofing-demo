@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
+using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Filters
 {
@@ -19,10 +20,12 @@ namespace RoofingLeadGeneration.Filters
     public class TrialGateFilter : IAsyncActionFilter
     {
         private readonly AppDbContext _db;
+        private readonly string       _adminEmail;
 
-        public TrialGateFilter(AppDbContext db)
+        public TrialGateFilter(AppDbContext db, IConfiguration config)
         {
-            _db = db;
+            _db         = db;
+            _adminEmail = config["AdminEmail"] ?? "";
         }
 
         public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -33,6 +36,15 @@ namespace RoofingLeadGeneration.Filters
             {
                 skip = context.ActionDescriptor.EndpointMetadata
                     .Any(m => m is SkipTrialGateAttribute);
+            }
+
+            // Platform admins are never gated by the trial paywall — anywhere.
+            var email = context.HttpContext.User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+            if (!string.IsNullOrEmpty(_adminEmail) &&
+                string.Equals(email, _adminEmail, StringComparison.OrdinalIgnoreCase))
+            {
+                await next();
+                return;
             }
 
             if (context.HttpContext.User.Identity?.IsAuthenticated == true)

@@ -264,7 +264,7 @@ namespace RoofingLeadGeneration.Services
                                     .FontSize(9).Bold().FontColor(SlateLight)
                                     .LetterSpacing(0.08f);
                                 inner.Item().PaddingTop(2).Text(
-                                    $"{hailHistory.Count} hail event{(hailHistory.Count == 1 ? "" : "s")} recorded within 2 miles of this property.")
+                                    $"{hailHistory.Count} hail event{(hailHistory.Count == 1 ? "" : "s")} recorded within 10 miles of this property.")
                                     .FontSize(9).FontColor(SlateText);
 
                                 inner.Item().PaddingTop(8).Table(table =>
@@ -275,6 +275,7 @@ namespace RoofingLeadGeneration.Services
                                         cols.RelativeColumn(2);  // Size
                                         cols.RelativeColumn(3);  // Reference
                                         cols.RelativeColumn(2);  // Source
+                                        cols.RelativeColumn(2);  // Distance
                                     });
 
                                     table.Header(h =>
@@ -287,12 +288,17 @@ namespace RoofingLeadGeneration.Services
                                         HdrCell(h.Cell(), "Hail Size");
                                         HdrCell(h.Cell(), "Size Reference");
                                         HdrCell(h.Cell(), "Source");
+                                        HdrCell(h.Cell(), "Distance");
                                     });
 
                                     for (int i = 0; i < hailHistory.Count; i++)
                                     {
                                         var e  = hailHistory[i];
                                         var bg = i % 2 == 0 ? White : "#f8fafc";
+                                        var miles = (lead.Lat.HasValue && lead.Lng.HasValue)
+                                            ? (double?)RealDataService.HaversineDistanceMiles(
+                                                  lead.Lat.Value, lead.Lng.Value, e.Lat, e.Lng)
+                                            : null;
                                         table.Cell().Background(bg).Padding(5)
                                             .Text(e.Date.ToString("MMM d, yyyy"))
                                             .FontSize(9).FontColor(NavyDark);
@@ -305,6 +311,9 @@ namespace RoofingLeadGeneration.Services
                                         table.Cell().Background(bg).Padding(5)
                                             .Text(FormatSource(e.Source))
                                             .FontSize(8).FontColor(SlateLight);
+                                        table.Cell().Background(bg).Padding(5)
+                                            .Text(miles.HasValue ? $"{miles.Value:F1} mi" : "—")
+                                            .FontSize(9).FontColor(SlateText);
                                     }
                                 });
                             });
