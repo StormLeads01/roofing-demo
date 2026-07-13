@@ -45,6 +45,17 @@ namespace RoofingLeadGeneration.Services
         private const string EmptyFeatureCollection = "{\"type\":\"FeatureCollection\",\"features\":[]}";
         private const string OutputSchemaVersion     = "v2"; // bump when ReshapeToAppSchema's output shape changes
 
+        // Storm Explorer now defaults to *every* date in the selected period
+        // being "on", which can fire dozens of simultaneous MeshSwath requests
+        // from one page load. Each cache-miss request downloads a grib and
+        // runs two GDAL subprocesses — cheap one at a time, but the Fly.io box
+        // (1 shared CPU / 1GB) OOMs and 502s if too many run concurrently.
+        // This caps how many grib-download+GDAL pipelines run at once
+        // app-wide; extra requests queue here instead of piling onto the box.
+        // Cache hits (the common case after the first view of a date) skip
+        // this gate entirely — see GetMeshSwathGeoJsonAsync.
+        private static readonly SemaphoreSlim PipelineGate = new(2, 2);
+
         // MESH switches from IEM MTArchive to NOAA AWS OpenData at this date —
         // NOAA did not backfill Sep 2019–Oct 2020 to AWS (pre a major MRMS
         // upgrade), so that window only exists via IEM. IEM's MTArchive covers
@@ -104,40 +115,58 @@ namespace RoofingLeadGeneration.Services
                 return await File.ReadAllTextAsync(geoJsonCachePath);
             }
 
-            string? gribPath;
+            await PipelineGate.WaitAsync();
+            debug?.Note($"pipeline gate acquired (slots={PipelineGate.CurrentCount} free after acquire)");
             try
             {
-                gribPath = await EnsureGribDownloadedAsync(dateUtc, debug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "MESH grib download failed for {Date}", dateUtc);
-                debug?.Note("download failed: " + ex.Message);
-                return EmptyFeatureCollection;
-            }
+                // Re-check the cache now that we hold a slot — another request
+                // for the same date+bbox may have finished processing while we
+                // were queued, in which case we can skip straight to its output.
+                if (!(debug?.ForceRefresh ?? false) && File.Exists(geoJsonCachePath))
+                {
+                    debug?.Note($"geojson cache hit after gate wait: {geoJsonCachePath}");
+                    return await File.ReadAllTextAsync(geoJsonCachePath);
+                }
 
-            if (gribPath == null)
-            {
-                debug?.Note("no grib resolved for this date — treating as no-data");
-                return EmptyFeatureCollection;
-            }
+                string? gribPath;
+                try
+                {
+                    gribPath = await EnsureGribDownloadedAsync(dateUtc, debug);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "MESH grib download failed for {Date}", dateUtc);
+                    debug?.Note("download failed: " + ex.Message);
+                    return EmptyFeatureCollection;
+                }
 
-            string geojson;
-            try
-            {
-                geojson = await ContourAsync(gribPath, minLat, maxLat, minLng, maxLng, dateUtc, debug);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "MESH gdal_contour pipeline failed for {Date}", dateUtc);
-                debug?.Note("contour pipeline failed: " + ex.Message);
-                return EmptyFeatureCollection;
-            }
+                if (gribPath == null)
+                {
+                    debug?.Note("no grib resolved for this date — treating as no-data");
+                    return EmptyFeatureCollection;
+                }
 
-            try { await File.WriteAllTextAsync(geoJsonCachePath, geojson); }
-            catch (Exception ex) { debug?.Note("cache write failed (non-fatal): " + ex.Message); }
+                string geojson;
+                try
+                {
+                    geojson = await ContourAsync(gribPath, minLat, maxLat, minLng, maxLng, dateUtc, debug);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "MESH gdal_contour pipeline failed for {Date}", dateUtc);
+                    debug?.Note("contour pipeline failed: " + ex.Message);
+                    return EmptyFeatureCollection;
+                }
 
-            return geojson;
+                try { await File.WriteAllTextAsync(geoJsonCachePath, geojson); }
+                catch (Exception ex) { debug?.Note("cache write failed (non-fatal): " + ex.Message); }
+
+                return geojson;
+            }
+            finally
+            {
+                PipelineGate.Release();
+            }
         }
 
         // ── Locate + download the daily-max MESH grib for a UTC date ──────────

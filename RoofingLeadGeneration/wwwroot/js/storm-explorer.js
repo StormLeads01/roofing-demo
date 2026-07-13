@@ -46,6 +46,16 @@
     // polygon — by design, until Phase 2 is verified in a real environment.
     let meshLayers = {};
 
+    // Default selection is "every date in the period," which can mean 20-30+
+    // dates at once — firing that many simultaneous /RoofHealth/MeshSwath
+    // requests overwhelmed the server (each one triggers a grib download +
+    // GDAL pipeline on cache miss) and came back as 502s. Queue wanted dates
+    // and only let a few fetches run at a time; the rest wait their turn.
+    // See PipelineGate in MeshSwathService.cs for the matching server-side cap.
+    var MESH_FETCH_CONCURRENCY = 3;
+    var meshFetchQueue    = [];   // date strings waiting to be fetched
+    var meshFetchInFlight = new Set(); // date strings currently being fetched
+
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -624,14 +634,30 @@
             }
         });
 
+        // Drop queued/no-longer-wanted dates (e.g. user deselected before
+        // their turn came up).
+        meshFetchQueue = meshFetchQueue.filter(function (d) { return wanted.indexOf(d) !== -1; });
+
         wanted.forEach(function (date) {
-            if (!meshLayers[date]) loadMeshForDate(date);
+            if (meshLayers[date] || meshFetchInFlight.has(date) || meshFetchQueue.indexOf(date) !== -1) return;
+            meshFetchQueue.push(date);
         });
+
+        pumpMeshFetchQueue();
+    }
+
+    /** Start fetches off the queue up to MESH_FETCH_CONCURRENCY in flight. */
+    function pumpMeshFetchQueue() {
+        while (meshFetchInFlight.size < MESH_FETCH_CONCURRENCY && meshFetchQueue.length > 0) {
+            var date = meshFetchQueue.shift();
+            meshFetchInFlight.add(date);
+            loadMeshForDate(date);
+        }
     }
 
     /** Fetch + render the MESH swath for one date over the current viewport. */
     function loadMeshForDate(date) {
-        if (!seMap) return;
+        if (!seMap) { meshFetchInFlight.delete(date); pumpMeshFetchQueue(); return; }
         var bounds = seMap.getBounds();
 
         fetch('/RoofHealth/MeshSwath?' + new URLSearchParams({
@@ -709,7 +735,11 @@
                     '/RoofHealth/MeshDebug?date=' + date + ' (see docs/mesh-phase2-handoff.md).');
             }
         })
-        .catch(function (err) { console.warn('[Radar MESH]', err); });
+        .catch(function (err) { console.warn('[Radar MESH]', err); })
+        .finally(function () {
+            meshFetchInFlight.delete(date);
+            pumpMeshFetchQueue();
+        });
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────
