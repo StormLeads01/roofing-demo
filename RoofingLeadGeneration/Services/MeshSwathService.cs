@@ -43,6 +43,7 @@ namespace RoofingLeadGeneration.Services
         private readonly TimeSpan                  _processTimeout;
 
         private const string EmptyFeatureCollection = "{\"type\":\"FeatureCollection\",\"features\":[]}";
+        private const string OutputSchemaVersion     = "v2"; // bump when ReshapeToAppSchema's output shape changes
 
         // MESH switches from IEM MTArchive to NOAA AWS OpenData at this date —
         // NOAA did not backfill Sep 2019–Oct 2020 to AWS (pre a major MRMS
@@ -90,7 +91,12 @@ namespace RoofingLeadGeneration.Services
 
             var bboxKey  = $"{minLat:F2}_{maxLat:F2}_{minLng:F2}_{maxLng:F2}";
             var cacheKey = $"{dateUtc:yyyyMMdd}_{bboxKey}";
-            var geoJsonCachePath = Path.Combine(_cacheDir, $"mesh_{cacheKey}.geojson");
+            // OutputSchemaVersion bumps whenever ReshapeToAppSchema/ContourAsync's
+            // *output* format changes (e.g. the below-minimum-band filter added
+            // 2026-07-13) — old cached files under the previous name simply won't
+            // match and get regenerated, instead of silently serving stale output
+            // from before the fix on an already-deployed data volume.
+            var geoJsonCachePath = Path.Combine(_cacheDir, $"mesh_{OutputSchemaVersion}_{cacheKey}.geojson");
 
             if (!(debug?.ForceRefresh ?? false) && File.Exists(geoJsonCachePath))
             {
@@ -290,6 +296,15 @@ namespace RoofingLeadGeneration.Services
             writer.WriteString("type", "FeatureCollection");
             writer.WriteStartArray("features");
 
+            // gdal_contour -p emits one extra ring below the lowest requested
+            // -fl level (everything from the raster's actual minimum up to
+            // that level) — not a real hail-size band. At MESH=0 (no hail)
+            // that ring typically covers most of the requested bbox, so left
+            // unfiltered it painted a large flat wash over the whole map and
+            // buried the real bands. Anything below our smallest configured
+            // band (0.75") gets dropped here.
+            double minBandMm = SizeBandsInches[0] * 25.4;
+
             if (doc.RootElement.TryGetProperty("features", out var features))
             {
                 foreach (var f in features.EnumerateArray())
@@ -301,6 +316,9 @@ namespace RoofingLeadGeneration.Services
                     {
                         sizeBandMm = mm.GetDouble();
                     }
+
+                    if (sizeBandMm < minBandMm - 0.01) // small epsilon for float rounding
+                        continue;
 
                     writer.WriteStartObject();
                     writer.WriteString("type", "Feature");
