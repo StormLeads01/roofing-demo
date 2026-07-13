@@ -14,6 +14,8 @@ namespace RoofingLeadGeneration.Controllers
     public class RoofHealthController : Controller
     {
         private readonly RealDataService              _realData;
+        private readonly MeshSwathService              _mesh;
+        private readonly bool                          _meshEnabled;
         private readonly IMemoryCache                 _cache;
         private readonly string                       _apiKey;
         private readonly string                       _tomorrowKey;
@@ -48,11 +50,13 @@ namespace RoofingLeadGeneration.Controllers
             return (int)Math.Round(years * 365.25);
         }
 
-        public RoofHealthController(RealDataService realData, IMemoryCache cache,
+        public RoofHealthController(RealDataService realData, MeshSwathService mesh, IMemoryCache cache,
                                     IConfiguration config,
                                     IWebHostEnvironment env, ILogger<RoofHealthController> logger)
         {
             _realData    = realData;
+            _mesh        = mesh;
+            _meshEnabled = config.GetValue<bool>("FeatureFlags:MeshSwaths");
             _cache       = cache;
             _env         = env;
             _logger      = logger;
@@ -896,222 +900,13 @@ namespace RoofingLeadGeneration.Controllers
             return Json(results);
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // GET /RoofHealth/NhpProbe
-        //   Tests candidate NHP / ArcGIS endpoints to find the working one.
-        //   Open in browser: /RoofHealth/NhpProbe
-        // ─────────────────────────────────────────────────────────────────
-        [HttpGet("NhpProbe")]
-        public async Task<IActionResult> NhpProbe()
-        {
-            // Bounding box over Dallas TX — used to test each endpoint
-            const string envelope = "-97.1,32.5,-96.4,33.1";
-
-            var candidates = new[]
-            {
-                // Candidate 1 — speculative URL used in current code
-                "https://services1.arcgis.com/A6seFM3Tl8hPB0Q6/arcgis/rest/services/NHP_HailSwath_MRMS_MESH/FeatureServer/0/query",
-                // Candidate 2 — alternate org ID pattern for Western University
-                "https://services.arcgis.com/A6seFM3Tl8hPB0Q6/arcgis/rest/services/NHP_HailSwath_MRMS_MESH/FeatureServer/0/query",
-                // Candidate 3 — public NHP data via ArcGIS Online
-                "https://services1.arcgis.com/jUJYIo9tSA7EHvfZ/arcgis/rest/services/NHP_HailSwath/FeatureServer/0/query",
-                // Candidate 4 — Iowa State tile cache MESH product probe
-                "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-MESH/0/0/0.png",
-                // Candidate 5 — Iowa State MRMS archive info
-                "https://mesonet.agron.iastate.edu/api/1/currents.geojson?network=MESH",
-            };
-
-            using var http = new System.Net.Http.HttpClient();
-            http.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
-            http.Timeout = TimeSpan.FromSeconds(8);
-
-            var results = new List<object>();
-            foreach (var url in candidates)
-            {
-                try
-                {
-                    // ArcGIS feature service queries need POST with params
-                    string testUrl = url;
-                    System.Net.Http.HttpResponseMessage resp;
-
-                    if (url.Contains("FeatureServer"))
-                    {
-                        var qp = new Dictionary<string, string>
-                        {
-                            ["f"]             = "json",
-                            ["where"]         = "1=1",
-                            ["geometry"]      = envelope,
-                            ["geometryType"]  = "esriGeometryEnvelope",
-                            ["inSR"]          = "4326",
-                            ["outFields"]     = "*",
-                            ["resultRecordCount"] = "1"
-                        };
-                        resp = await http.PostAsync(url, new FormUrlEncodedContent(qp));
-                    }
-                    else
-                    {
-                        resp = await http.GetAsync(url);
-                    }
-
-                    var body    = await resp.Content.ReadAsStringAsync();
-                    var preview = body.Length > 300 ? body[..300] + "…" : body;
-                    results.Add(new
-                    {
-                        url,
-                        status      = (int)resp.StatusCode,
-                        ok          = resp.IsSuccessStatusCode,
-                        bodyPreview = preview
-                    });
-                }
-                catch (Exception ex)
-                {
-                    results.Add(new { url, status = 0, ok = false, bodyPreview = ex.Message });
-                }
-            }
-            return Json(results);
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // GET /RoofHealth/NhpSwathDebug
-        //   Runs all three ArcGIS search strategies and shows what each returns.
-        //   Use this to verify that the NHP hail swath feature service can be found.
-        //   Open in browser: /RoofHealth/NhpSwathDebug
-        // ─────────────────────────────────────────────────────────────────
-        [HttpGet("NhpSwathDebug")]
-        public async Task<IActionResult> NhpSwathDebug()
-        {
-            var searches = new[]
-            {
-                "https://hub.arcgis.com/api/v3/datasets?q=hail+swath+MRMS+MESH&filter[access]=public&limit=5",
-                "https://www.arcgis.com/sharing/rest/search?q=NHP+hail+swath+MRMS+MESH&num=10&f=json",
-                "https://www.arcgis.com/sharing/rest/search?q=hail+swath+MRMS+type:Feature+Service&num=5&f=json",
-            };
-
-            using var http = new System.Net.Http.HttpClient();
-            http.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
-            http.Timeout = TimeSpan.FromSeconds(12);
-
-            var results = new List<object>();
-            foreach (var url in searches)
-            {
-                try
-                {
-                    var body    = await http.GetStringAsync(url);
-                    var preview = body.Length > 600 ? body[..600] + "…" : body;
-                    results.Add(new { url, status = "ok", bodyPreview = preview, length = body.Length });
-                }
-                catch (Exception ex)
-                {
-                    results.Add(new { url, status = "error", error = ex.Message });
-                }
-            }
-            return Json(results, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // GET /RoofHealth/NhpFieldsDebug
-        //   Resolves the NHP feature service URL, fetches layer metadata (geometry
-        //   type + all field names), and runs a 2-record sample query over Dallas.
-        //   Use after NhpSwathDebug confirms the search is working.
-        // ─────────────────────────────────────────────────────────────────
-        [HttpGet("NhpFieldsDebug")]
-        public async Task<IActionResult> NhpFieldsDebug()
-        {
-            // Reuse the same search strategy as GetMrmsHailSwathGeoJsonAsync
-            var searches = new[]
-            {
-                "https://hub.arcgis.com/api/v3/datasets?q=hail+swath+MRMS+MESH&filter%5Baccess%5D=public&limit=5",
-                "https://www.arcgis.com/sharing/rest/search?q=NHP+hail+swath+MRMS+MESH&num=10&f=json",
-            };
-
-            using var http = new System.Net.Http.HttpClient();
-            http.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
-            http.Timeout = TimeSpan.FromSeconds(12);
-
-            // Step 1: find the FeatureServer URL
-            string? svcUrl = null;
-            foreach (var s in searches)
-            {
-                try
-                {
-                    var body = await http.GetStringAsync(s);
-                    // Pull the url field out of each result manually
-                    using var doc = JsonDocument.Parse(body);
-                    var root = doc.RootElement;
-                    // ArcGIS Online format
-                    if (root.TryGetProperty("results", out var res))
-                    {
-                        foreach (var item in res.EnumerateArray())
-                        {
-                            if (item.TryGetProperty("url", out var u))
-                            {
-                                var raw = u.GetString() ?? "";
-                                if (raw.Contains("FeatureServer", StringComparison.OrdinalIgnoreCase))
-                                { svcUrl = raw.TrimEnd('/'); break; }
-                            }
-                        }
-                    }
-                    if (!string.IsNullOrEmpty(svcUrl)) break;
-                }
-                catch { }
-            }
-
-            if (string.IsNullOrEmpty(svcUrl))
-                return Json(new { error = "No FeatureServer URL found in any search. Run /RoofHealth/NhpSwathDebug first." });
-
-            var result = new System.Collections.Generic.Dictionary<string, object>
-            {
-                ["resolvedServiceUrl"] = svcUrl
-            };
-
-            // Step 2: fetch layer 0 metadata
-            try
-            {
-                var metaBody = await http.GetStringAsync(svcUrl + "/0?f=json");
-                using var metaDoc = JsonDocument.Parse(metaBody);
-                var metaRoot = metaDoc.RootElement;
-
-                var geomType = metaRoot.TryGetProperty("geometryType", out var gt) ? gt.GetString() : "unknown";
-                result["geometryType"] = geomType ?? "unknown";
-
-                var fieldList = new List<string>();
-                if (metaRoot.TryGetProperty("fields", out var fields))
-                    foreach (var f in fields.EnumerateArray())
-                        if (f.TryGetProperty("name", out var fn))
-                            fieldList.Add(fn.GetString() ?? "");
-                result["fields"] = fieldList;
-            }
-            catch (Exception ex)
-            {
-                result["metadataError"] = ex.Message;
-            }
-
-            // Step 3: sample query — 2 records from Dallas bbox, no date filter
-            try
-            {
-                var qp = new Dictionary<string, string>
-                {
-                    ["f"]                 = "json",
-                    ["outFields"]         = "*",
-                    ["where"]             = "1=1",
-                    ["geometry"]          = "-97.1,32.5,-96.4,33.1",
-                    ["geometryType"]      = "esriGeometryEnvelope",
-                    ["spatialRel"]        = "esriSpatialRelIntersects",
-                    ["inSR"]              = "4326",
-                    ["resultRecordCount"] = "2"
-                };
-                var qResp  = await http.PostAsync(svcUrl + "/0/query", new FormUrlEncodedContent(qp));
-                var qBody  = await qResp.Content.ReadAsStringAsync();
-                result["sampleQueryStatus"] = (int)qResp.StatusCode;
-                result["sampleQueryBody"]   = qBody.Length > 1200 ? qBody[..1200] + "…" : qBody;
-            }
-            catch (Exception ex)
-            {
-                result["sampleQueryError"] = ex.Message;
-            }
-
-            return Json(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        }
+        // NhpProbe / NhpSwathDebug / NhpFieldsDebug removed (2026-07-08).
+        // Confirmed dead end in docs/map-upgrade-research.md: the only real
+        // "NHP" ArcGIS service is the Northern Hail Project (Western University,
+        // Ontario) — Canada-only (43.8–55°N), 2022–2023 only, CC BY-NC
+        // (non-commercial), derived lines/points not a per-parcel grid. See
+        // docs/mesh-phase2-handoff.md for the real MESH GRIB pipeline that
+        // replaces this (MeshSwath / MeshDebug endpoints below).
 
         // ─────────────────────────────────────────────────────────────────
         // GET /RoofHealth/HailSwathPolygons
@@ -1152,6 +947,73 @@ namespace RoofingLeadGeneration.Controllers
                 minLat, maxLat, minLng, maxLng, lookbackDays);
 
             return Content(geojson, "application/json");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/MeshSwath
+        //   Phase 2: true radar-derived MRMS MESH hail swath — size-banded
+        //   polygons for the given bbox + date, same property shape as
+        //   HailSwathPolygons (sizeBand/date) so the frontend can style both
+        //   with the existing swathColor()/legend.
+        //   Gated behind FeatureFlags:MeshSwaths (off by default). Needs GDAL
+        //   (gdal_translate/gdal_contour) in the runtime image and has NOT been
+        //   verified against live NOAA/IEM data — see
+        //   docs/mesh-phase2-handoff.md before enabling in production.
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("MeshSwath")]
+        public async Task<IActionResult> MeshSwath(
+            double minLat = 0, double maxLat = 0,
+            double minLng = 0, double maxLng = 0,
+            string date = "")
+        {
+            if (!_meshEnabled || (minLat == 0 && maxLat == 0))
+                return Content("{\"type\":\"FeatureCollection\",\"features\":[]}", "application/json");
+
+            var dateUtc = DateTime.TryParse(date, out var d)
+                ? DateTime.SpecifyKind(d, DateTimeKind.Utc)
+                : DateTime.UtcNow.AddDays(-1);
+
+            var geojson = await _mesh.GetMeshSwathGeoJsonAsync(minLat, maxLat, minLng, maxLng, dateUtc);
+            return Content(geojson, "application/json");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/MeshDebug?lat=32.54&lng=-96.86&date=2026-05-12
+        //   Diagnostic for the MESH pipeline — runs it for a single point/date
+        //   (0.5° bbox around lat/lng) and reports each step (resolved grib
+        //   URL, download size, gdal_translate/gdal_contour exit codes +
+        //   output, final feature count) instead of just the GeoJSON. Not
+        //   gated behind FeatureFlags:MeshSwaths — this is the tool for
+        //   verifying the pipeline BEFORE turning that flag on. Mirrors the
+        //   existing HailDebug/LsrDebug/RegridDebug dev-diagnostic pattern.
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("MeshDebug")]
+        public async Task<IActionResult> MeshDebug(
+            double lat = 32.54, double lng = -96.86, string date = "", bool forceRefresh = false)
+        {
+            var dateUtc = DateTime.TryParse(date, out var d)
+                ? DateTime.SpecifyKind(d, DateTimeKind.Utc)
+                : DateTime.UtcNow.AddDays(-1);
+
+            var sink = new MeshDebugSink { ForceRefresh = forceRefresh };
+            var geojson = await _mesh.GetMeshSwathGeoJsonAsync(
+                lat - 0.5, lat + 0.5, lng - 0.5, lng + 0.5, dateUtc, sink);
+
+            int featureCount = 0;
+            try
+            {
+                using var doc = JsonDocument.Parse(geojson);
+                if (doc.RootElement.TryGetProperty("features", out var feats))
+                    featureCount = feats.GetArrayLength();
+            }
+            catch { /* leave featureCount at 0 if the geojson is malformed */ }
+
+            return Json(new
+            {
+                date = dateUtc.ToString("yyyy-MM-dd"),
+                lat, lng, featureCount,
+                steps = sink.Notes
+            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         }
 
         // DTOs

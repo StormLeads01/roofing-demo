@@ -23,6 +23,10 @@ public class HomeController : Controller
         ViewBag.GoogleMapsApiKey       = _config["GoogleMaps:ApiKey"] ?? "";
         ViewBag.MapTilerApiKey         = _config["MapTiler:ApiKey"] ?? "";
         ViewBag.HailSwathPolygons      = _config.GetValue<bool>("FeatureFlags:HailSwathPolygons");
+        // Note: MESH visibility is no longer gated by a ViewBag/button — Storm
+        // Explorer always tries to render it per selected date; the server-side
+        // FeatureFlags:MeshSwaths check in RoofHealthController controls whether
+        // that returns real data. See docs/mesh-phase2-handoff.md.
         return View();
     }
 

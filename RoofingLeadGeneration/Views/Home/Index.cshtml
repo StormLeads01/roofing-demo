@@ -165,18 +165,17 @@
 ══════════════════════════════════════════════════════════════ -->
 <div id="mainTabBar" class="bg-slate-900/80 border-b border-slate-700/60 sticky top-16 z-40 backdrop-blur-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex">
-        <button id="tabBtnNeighborhood" onclick="switchMainTab('neighborhood')"
-            class="flex items-center gap-2 px-5 py-3.5 text-sm font-semibold
-                   border-b-2 border-brand text-white -mb-px transition-colors">
-            <i class="fa-solid fa-house-chimney text-brand/80 text-xs"></i>
-            Neighborhood Scan
-        </button>
         <button id="tabBtnStorm" onclick="switchMainTab('storm')"
             class="flex items-center gap-2 px-5 py-3.5 text-sm font-semibold
-                   border-b-2 border-transparent text-slate-400 hover:text-slate-200 -mb-px transition-colors">
+                   border-b-2 border-brand text-white -mb-px transition-colors">
             <i class="fa-solid fa-cloud-bolt text-xs"></i>
             Storm Explorer
-            <span class="px-1.5 py-0.5 rounded-full bg-brand/20 text-brand text-xs font-bold leading-none">BETA</span>
+        </button>
+        <button id="tabBtnNeighborhood" onclick="switchMainTab('neighborhood')"
+            class="flex items-center gap-2 px-5 py-3.5 text-sm font-semibold
+                   border-b-2 border-transparent text-slate-400 hover:text-slate-200 -mb-px transition-colors">
+            <i class="fa-solid fa-house-chimney text-brand/80 text-xs"></i>
+            Neighborhood Scan
         </button>
     </div>
 </div>
@@ -184,7 +183,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      NEIGHBORHOOD SCAN PANEL  (search form + results)
 ══════════════════════════════════════════════════════════════ -->
-<div id="neighborhoodPanel">
+<div id="neighborhoodPanel" class="hidden">
 
     <!-- Search form -->
     <div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
@@ -370,9 +369,9 @@
 </div><!-- end #neighborhoodPanel -->
 
 <!-- ══════════════════════════════════════════════════════════════
-     STORM EXPLORER SECTION  (hidden until Storm Explorer tab is clicked)
+     STORM EXPLORER SECTION  (default tab — hidden only when Neighborhood Scan is active)
 ══════════════════════════════════════════════════════════════ -->
-<section id="stormExplorer" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<section id="stormExplorer" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
     <!-- Filter bar -->
     <div class="mb-5 flex flex-wrap items-center gap-3 bg-slate-800/60 rounded-2xl border border-slate-700/60 px-5 py-3.5">
@@ -498,5 +497,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 <script>window.MAPTILER_KEY = '@ViewBag.MapTilerApiKey';</script>
 <script src="~/js/storm-explorer.js"></script>
+<script>
+    // Storm Explorer is the default tab now — switchMainTab() sets the correct
+    // button/panel classes (harmless no-op, they already match) and — the part
+    // that actually matters — builds the Leaflet map via initStormExplorer(),
+    // which otherwise only ran the first time a user clicked the tab by hand.
+    switchMainTab('storm');
+</script>
 </body>
 </html>

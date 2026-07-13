@@ -2,7 +2,12 @@
 // Storm Explorer  –  viewport-driven storm event browser
 //   • Shows a Leaflet map the user can pan/zoom freely
 //   • On each map move, fetches /RoofHealth/StormEvents for the visible area
-//   • Renders a ranked event list on the left, map circles on the right
+//   • Renders a ranked event list on the left; the map itself shows radar-
+//     derived MRMS MESH hail swaths (Phase 2) for whichever date(s) are
+//     selected in that list — see syncMeshLayers()/loadMeshForDate() below.
+//     (Older per-cluster dot markers + a client-side turf.js hull/buffer
+//     approximation used to stand in for this; removed 2026-07-13 now that
+//     real MESH swaths are available. See docs/mesh-phase2-handoff.md.)
 //   • Filter controls: min hail size, lookback period, wind toggle
 // ══════════════════════════════════════════════════════════════════════════
 (function () {
@@ -10,16 +15,16 @@
 
     // ── Internal state ──────────────────────────────────────────────────
     let seMap       = null;         // Leaflet map instance
-    let seCircles   = null;         // L.layerGroup for storm circles
     let seLoading   = false;
     let seDebounce  = null;
     let seStorms    = [];           // last fetched cluster array
     let seState     = '';           // detected 2-letter state abbr
     let seInitialized = false;
 
-    let seSelectedDates  = null;    // Set of selected date strings; null = all selected
-    let seSwathCache     = null;    // cached HailSwath GeoJSON for current viewport
-    let seSwathLayer     = null;    // L.layerGroup holding rendered swath polygons
+    let seSelectedDates  = null;    // Set of selected (checked/"on") date strings; null = not yet initialized
+    let seKnownDates     = new Set(); // every date string ever seen this session — lets renderSeList tell
+                                      // "date I've already shown before" (respect current on/off) apart from
+                                      // "brand new date, e.g. revealed by zooming out" (defaults on)
     let seHoverControl   = null;    // fixed hover info panel (topright)
 
     // Hail Reports overlay state
@@ -31,6 +36,15 @@
     let swathLayer   = null;          // Leaflet GeoJSON layer — size-banded convex hull polygons
     let swathVisible = false;
     let swathLegend  = null;          // L.control floating legend for swaths
+
+    // Radar MESH — the primary storm visualization (Phase 2, true radar-derived
+    // per-pixel hail size; gated server-side behind FeatureFlags:MeshSwaths —
+    // see docs/mesh-phase2-handoff.md). One Leaflet layer per selected date,
+    // keyed by date string, kept in sync with seSelectedDates (the date cards
+    // in the left panel) by syncMeshLayers(). No client-side fallback: if the
+    // flag is off or a date's swath comes back empty, that date just shows no
+    // polygon — by design, until Phase 2 is verified in a real environment.
+    let meshLayers = {};
 
     // ── Public API ──────────────────────────────────────────────────────
 
@@ -345,23 +359,6 @@
         hailLegendControl.addTo(seMap);
     }
 
-    /** Called by storm cards to fly to and highlight a storm. */
-    window.seSelectCard = function (idx) {
-        document.querySelectorAll('.se-card').forEach(function (el) {
-            el.classList.remove('ring-2', 'ring-brand', 'brightness-110');
-        });
-
-        const card = document.getElementById('se-card-' + idx);
-        if (card) {
-            card.classList.add('ring-2', 'ring-brand');
-            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-
-        if (seMap && seStorms[idx]) {
-            seMap.flyTo([seStorms[idx].lat, seStorms[idx].lng], Math.max(seMap.getZoom(), 11));
-        }
-    };
-
     // ── Map construction ────────────────────────────────────────────────
     function buildSeMap(lat, lng) {
         seMap = L.map('seMapContainer', { center: [lat, lng], zoom: 10, zoomControl: true });
@@ -395,8 +392,6 @@
             return div;
         };
         seHoverControl.addTo(seMap);
-
-        seCircles = L.layerGroup().addTo(seMap);
 
         seMap.on('moveend', function () { scheduleSeLoad(700); });
     }
@@ -443,10 +438,9 @@
             .then(function (data) {
                 if (data.state) seState = data.state;
                 seStorms = data.storms || [];
-                seSelectedDates = null;  // reset so new dates are all-selected
                 renderSeCount(seStorms.length);
-                renderSeList(seStorms);
-                renderSeCircles(seStorms);
+                renderSeList(seStorms);  // preserves/prunes seSelectedDates — see there
+                syncMeshLayers();
             })
             .catch(function (err) {
                 console.warn('[StormExplorer] fetch failed:', err);
@@ -482,9 +476,34 @@
         // Sort dates descending
         var dates = Object.keys(byDate).sort(function (a, b) { return b.localeCompare(a); });
 
-        // Init selection to most recent date only
         if (!seSelectedDates) {
-            seSelectedDates = new Set(dates.length > 0 ? [dates[0]] : []);
+            // True first load: default to every date in the selected time
+            // period "on" (all storms within the Period filter show their
+            // swath), not just the most recent one.
+            seSelectedDates = new Set(dates);
+            dates.forEach(function (d) { seKnownDates.add(d); });
+        } else {
+            // Re-fetch (e.g. the map was panned/zoomed, which re-runs this on
+            // every moveend, or a new date is revealed by zooming out):
+            //   - a date we've already shown before keeps whatever on/off
+            //     state the user left it in (respects manual deselection)
+            //   - a date we've never seen before this session defaults on,
+            //     same as the first-load default above
+            // Previously this always reset to null here, which silently
+            // dropped the user's picks on every pan — invisible back when
+            // dots/turf-swath didn't fully depend on selection, but MESH
+            // rendering is 100% selection-driven now, so it read as storms
+            // "randomly" deselecting themselves.
+            var next = new Set();
+            dates.forEach(function (d) {
+                if (seKnownDates.has(d)) {
+                    if (seSelectedDates.has(d)) next.add(d);
+                } else {
+                    next.add(d);
+                    seKnownDates.add(d);
+                }
+            });
+            seSelectedDates = next;
         }
 
         list.innerHTML = dates.map(function (date) {
@@ -495,7 +514,6 @@
     function seDateCardHtml(date, clusters) {
         var maxHail    = clusters.reduce(function (m, s) { return Math.max(m, s.maxHailInches || 0); }, 0);
         var maxScore   = clusters.reduce(function (m, s) { return Math.max(m, s.score || 0); }, 0);
-        var totalRpts  = clusters.reduce(function (m, s) { return m + (s.hailReports || 0); }, 0);
         var maxWind    = clusters.reduce(function (m, s) { return Math.max(m, s.maxWindMph || 0); }, 0);
         var selected   = !seSelectedDates || seSelectedDates.has(date);
 
@@ -543,9 +561,7 @@
                '</div>' +
 
                '<div class="mt-2.5 flex items-center gap-3 text-xs text-slate-600">' +
-               '<span><i class="fa-solid fa-location-dot mr-0.5"></i>' + totalRpts + ' report' + (totalRpts !== 1 ? 's' : '') + '</span>' +
-               '<div class="flex-1"></div>' +
-               '<div class="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">' +
+               '<div class="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">' +
                '<div class="h-full rounded-full bg-gradient-to-r from-orange-500 to-red-500 transition-all" ' +
                'style="width:' + scoreWidth + '%"></div>' +
                '</div>' +
@@ -577,148 +593,123 @@
             tmp.innerHTML = newHtml;
             card.replaceWith(tmp.firstElementChild);
         }
-        applySwathFilter();
+        syncMeshLayers();
     };
 
-    // ── Storm swath rendering ─────────────────────────────────────────────
-    function renderSeCircles(storms) {
-        if (!seCircles || !seMap) return;
-        seCircles.clearLayers();
-        if (seSwathLayer) { seMap.removeLayer(seSwathLayer); seSwathLayer = null; }
-        seSwathCache = null;
-        if (!storms || storms.length === 0) return;
+    // ── Radar MESH rendering (Phase 2 — the primary storm visualization) ──
+    //
+    // Replaces the old always-on per-cluster dot markers + client-side
+    // turf.js hull/buffer approximation. One Leaflet layer per selected date;
+    // syncMeshLayers() reconciles that against seSelectedDates (driven by the
+    // date cards in the left panel) every time the selection or the result
+    // set changes. No fallback rendering: FeatureFlags:MeshSwaths off, or a
+    // date with no MESH data, just means no polygon for that date — see
+    // docs/mesh-phase2-handoff.md for the verification checklist before
+    // relying on this in production.
 
-        // Dot markers on top for every cluster (always visible)
-        storms.forEach(function (s, i) {
-            var dot = L.circleMarker([s.lat, s.lng], {
-                radius: 5, color: '#fff',
-                fillColor: swathColor(s.maxHailInches || 0.75),
-                fillOpacity: 1, weight: 1.5, zIndexOffset: 1000
-            });
-            dot.bindTooltip(
-                '<b>' + (s.maxHailInches || 0.75).toFixed(2) + '" hail</b>' +
-                (s.maxWindMph > 0 ? ' &nbsp;&middot;&nbsp; ' + s.maxWindMph.toFixed(0) + ' mph wind' : '') +
-                '<br>' + seFormatDate(s.date) + '<br>Score: ' + Math.round(s.score),
-                { direction: 'top', sticky: false }
-            );
-            dot.on('click', function () { seSelectCard(i); });
-            seCircles.addLayer(dot);
+    /**
+     * Keep meshLayers in sync with seSelectedDates: remove layers for dates
+     * no longer selected, fetch+add layers for newly-selected dates. Called
+     * after every StormEvents load and every date-card toggle.
+     */
+    function syncMeshLayers() {
+        if (!seMap) return;
+
+        var wanted = seSelectedDates ? Array.from(seSelectedDates) : [];
+
+        Object.keys(meshLayers).forEach(function (date) {
+            if (wanted.indexOf(date) === -1) {
+                seMap.removeLayer(meshLayers[date]);
+                delete meshLayers[date];
+            }
         });
 
-        if (typeof turf === 'undefined') return;
+        wanted.forEach(function (date) {
+            if (!meshLayers[date]) loadMeshForDate(date);
+        });
+    }
 
-        var bounds   = seMap.getBounds();
-        var lookback = parseInt(document.getElementById('seLookback')?.value || '90', 10);
+    /** Fetch + render the MESH swath for one date over the current viewport. */
+    function loadMeshForDate(date) {
+        if (!seMap) return;
+        var bounds = seMap.getBounds();
 
-        fetch('/RoofHealth/HailSwath?' + new URLSearchParams({
-            minLat:       bounds.getSouth().toFixed(4),
-            maxLat:       bounds.getNorth().toFixed(4),
-            minLng:       bounds.getWest().toFixed(4),
-            maxLng:       bounds.getEast().toFixed(4),
-            lookbackDays: lookback
+        fetch('/RoofHealth/MeshSwath?' + new URLSearchParams({
+            minLat: bounds.getSouth().toFixed(4),
+            maxLat: bounds.getNorth().toFixed(4),
+            minLng: bounds.getWest().toFixed(4),
+            maxLng: bounds.getEast().toFixed(4),
+            date:   date
         }))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (geojson) {
-            if (!geojson || !seMap) return;
-            seSwathCache = (geojson.features || []).filter(function (f) {
-                return f.geometry && f.geometry.type === 'Point';
-            });
-            applySwathFilter();
-        })
-        .catch(function (err) { console.warn('[StormExplorer] HailSwath fetch failed:', err); });
-    }
+            // Bail if the map is gone or this date was deselected while the
+            // fetch was in flight (avoids a stale layer popping back in).
+            if (!geojson || !seMap || !seSelectedDates || !seSelectedDates.has(date)) return;
+            if (meshLayers[date]) { seMap.removeLayer(meshLayers[date]); delete meshLayers[date]; }
 
-    /** Re-draw swath polygons using the cached report points + current date selection. */
-    function applySwathFilter() {
-        if (!seMap) return;
-        if (seSwathLayer) { seMap.removeLayer(seSwathLayer); seSwathLayer = null; }
-        var features = seSwathCache;
-        if (!features || features.length === 0 || typeof turf === 'undefined') return;
-
-        seSwathLayer = L.layerGroup().addTo(seMap);
-
-        // Filter to selected dates only
-        var active = features.filter(function (f) {
-            var d = f.properties && f.properties.date;
-            return !seSelectedDates || seSelectedDates.has(d);
-        });
-        if (active.length === 0) return;
-
-        // Group by date
-        var byDate = {};
-        active.forEach(function (f) {
-            var key = (f.properties && f.properties.date) || 'unknown';
-            if (!byDate[key]) byDate[key] = [];
-            byDate[key].push(f);
-        });
-
-        Object.keys(byDate).forEach(function (date) {
-            var pts = byDate[date];
-            var fc  = turf.featureCollection(pts);
-
-            // DBSCAN: separate report points into per-cell clusters (70 km radius)
-            var clustered;
-            try { clustered = turf.clustersDbscan(fc, 70, { minPoints: 2, units: 'kilometers' }); }
-            catch (e) { clustered = null; }
-
-            var clusterMap = {};
-            ((clustered && clustered.features) || pts).forEach(function (f) {
-                var cid = (f.properties && f.properties.cluster != null)
-                    ? f.properties.cluster : 'n_' + Math.random();
-                if (!clusterMap[cid]) clusterMap[cid] = [];
-                clusterMap[cid].push(f);
-            });
-
-            Object.keys(clusterMap).forEach(function (cid) {
-                var members = clusterMap[cid];
-                var maxHail = members.reduce(function (m, f) {
-                    return Math.max(m, (f.properties && f.properties.maxHailIn) || 0);
-                }, 0);
-                var color = swathColor(maxHail || 0.75);
-                var bufKm = Math.max(4, Math.min(12, (maxHail || 0.75) * 4.5));
-                var mfc   = turf.featureCollection(members);
-
-                try {
-                    var hull  = members.length >= 3 ? turf.convex(mfc) : null;
-                    var base  = hull || turf.bboxPolygon(turf.bbox(mfc));
-                    var swath = turf.buffer(base, bufKm,       { units: 'kilometers', steps: 24 });
-                    var glow  = turf.buffer(base, bufKm * 2.0, { units: 'kilometers', steps: 24 });
+            var layer = L.geoJSON(geojson, {
+                style: function (feature) {
+                    var band  = (feature.properties && feature.properties.sizeBand) || 0.75;
+                    var color = swathColor(band);
+                    return {
+                        color:       color,
+                        weight:      1,
+                        opacity:     0.65,
+                        fillColor:   color,
+                        fillOpacity: band >= 2.0 ? 0.34 : 0.22
+                    };
+                },
+                onEachFeature: function (feature, l) {
+                    var p    = feature.properties || {};
+                    var band = p.sizeBand || 0;
+                    var color = swathColor(band);
+                    var coinLabel = band >= 3.0  ? 'Grapefruit+'
+                                 : band >= 2.5  ? 'Baseball'
+                                 : band >= 2.0  ? 'Golf Ball'
+                                 : band >= 1.75 ? 'Ping Pong'
+                                 : band >= 1.5  ? 'Walnut'
+                                 : band >= 1.25 ? 'Half Dollar'
+                                 : band >= 1.0  ? 'Quarter'
+                                 : 'Penny';
 
                     var panelHtml =
                         '<div style="font-size:13px;min-width:200px">' +
-                        '<div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:10px;border-bottom:1px solid rgba(100,116,139,0.25);padding-bottom:8px">' + seFormatDate(date) + '</div>' +
+                        '<div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:10px;border-bottom:1px solid rgba(100,116,139,0.25);padding-bottom:8px">' + seFormatDate(p.date || date) + '</div>' +
                         '<div style="display:flex;align-items:center;gap:10px">' +
                         '<div style="width:36px;height:36px;border-radius:50%;background:' + color + '22;border:1.5px solid ' + color + '55;display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
-                        '<i class="fa-solid fa-cloud-bolt" style="color:' + color + ';font-size:14px"></i>' +
+                        '<i class="fa-solid fa-satellite-dish" style="color:' + color + ';font-size:14px"></i>' +
                         '</div>' +
                         '<div>' +
-                        '<div style="font-size:15px;font-weight:800;color:#fff;line-height:1.2">Hail up to ' + maxHail.toFixed(2) + '"</div>' +
-                        '<div style="color:#94a3b8;font-size:11px;margin-top:3px">' + members.length + ' report' + (members.length !== 1 ? 's' : '') + '</div>' +
+                        '<div style="font-size:15px;font-weight:800;color:#fff;line-height:1.2">' + band.toFixed(2) + '"+ (' + coinLabel + ')</div>' +
+                        '<div style="color:#94a3b8;font-size:11px;margin-top:3px">Radar-derived (MRMS MESH)</div>' +
                         '</div>' +
                         '</div>' +
                         '</div>';
 
-                    L.geoJSON(glow, { style: { fillColor: color, fillOpacity: 0.09, color: 'transparent', weight: 0 } }).addTo(seSwathLayer);
-                    L.geoJSON(swath, {
-                        style: { fillColor: color, fillOpacity: 0.36, color: color, weight: 1, opacity: 0.50 },
-                        onEachFeature: function (f, layer) {
-                            layer.on('mouseover', function () {
-                                if (!seHoverControl) return;
-                                var el = seHoverControl.getContainer();
-                                el.innerHTML = panelHtml;
-                                el.style.display = 'block';
-                            });
-                            layer.on('mouseout', function () {
-                                if (seHoverControl) seHoverControl.getContainer().style.display = 'none';
-                            });
-                        }
-                    }).addTo(seSwathLayer);
-                } catch (e) { console.warn('[StormExplorer] swath hull failed:', e); }
-            });
-        });
+                    l.on('mouseover', function () {
+                        if (!seHoverControl) return;
+                        var el = seHoverControl.getContainer();
+                        el.innerHTML = panelHtml;
+                        el.style.display = 'block';
+                    });
+                    l.on('mouseout', function () {
+                        if (seHoverControl) seHoverControl.getContainer().style.display = 'none';
+                    });
+                }
+            }).addTo(seMap);
 
-        // Keep dot markers on top — layerGroup has no bringToFront; lift each child
-        if (seCircles) seCircles.eachLayer(function (l) { if (l.bringToFront) l.bringToFront(); });
+            meshLayers[date] = layer;
+
+            var count = geojson.features ? geojson.features.length : 0;
+            console.info('[Radar MESH] ' + count + ' polygon(s) for ' + date + '.');
+            if (count === 0) {
+                console.info('[Radar MESH] No swath for ' + date + ' — either no hail that date/area, ' +
+                    'FeatureFlags:MeshSwaths is off, or the pipeline needs verifying. Check ' +
+                    '/RoofHealth/MeshDebug?date=' + date + ' (see docs/mesh-phase2-handoff.md).');
+            }
+        })
+        .catch(function (err) { console.warn('[Radar MESH]', err); });
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────

@@ -112,9 +112,18 @@ builder.Services.AddHttpClient("tomorrow", c =>
     c.Timeout     = TimeSpan.FromSeconds(15);
     c.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
 });
+builder.Services.AddHttpClient("mesh", c =>
+{
+    // MRMS MESH grib2.gz downloads (NOAA AWS / IEM MTArchive) can run several
+    // MB per CONUS-wide daily file; give this more headroom than the other
+    // (small JSON response) clients.
+    c.Timeout = TimeSpan.FromSeconds(120);
+    c.DefaultRequestHeaders.Add("User-Agent", "StormLeadPro/1.0");
+});
 
 // ── Services ──────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<RealDataService>();
+builder.Services.AddSingleton<MeshSwathService>();
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton<HailReportService>();
 builder.Services.AddHostedService<StormAlertService>();
