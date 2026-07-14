@@ -14,10 +14,10 @@
 # Secrets / local config (never commit real keys)
 /RoofingLeadGeneration/appsettings.Development.json
 
-# SQLite database (runtime artifact)
-/RoofingLeadGeneration/data/*.db
-/RoofingLeadGeneration/data/*.db-shm
-/RoofingLeadGeneration/data/*.db-wal
+# Runtime data (SQLite DB, auth keys, uploaded logos, MESH cache) — moved out
+# of bin/Debug and out of Data/ (case-collision with the C# source folder on
+# Windows) into App_Data/ at the project root. Never commit any of it.
+/RoofingLeadGeneration/App_Data/
 
 # Claude internal
 .claude/

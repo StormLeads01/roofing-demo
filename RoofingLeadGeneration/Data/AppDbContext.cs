@@ -3,6 +3,10 @@ using Microsoft.EntityFrameworkCore;
 namespace RoofingLeadGeneration.Data
 {
     using RoofingLeadGeneration.Data.Models;
+    // MailKit pulls in BouncyCastle.Cryptography transitively, which declares
+    // the global namespace "Org.BouncyCastle.*" — that makes "Org" ambiguous
+    // with our own Org model class (CS0118) unless aliased explicitly here.
+    using Org = RoofingLeadGeneration.Data.Models.Org;
 
     public class AppDbContext : DbContext
     {
@@ -16,6 +20,8 @@ namespace RoofingLeadGeneration.Data
         public DbSet<SentAlert>    SentAlerts   => Set<SentAlert>();
         public DbSet<OrgCredit>            OrgCredits            => Set<OrgCredit>();
         public DbSet<OrgCreditTransaction> OrgCreditTransactions => Set<OrgCreditTransaction>();
+        public DbSet<ReportCreditGrant>    ReportCreditGrants    => Set<ReportCreditGrant>();
+        public DbSet<StripeWebhookEvent>   StripeWebhookEvents   => Set<StripeWebhookEvent>();
 
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -33,6 +39,8 @@ namespace RoofingLeadGeneration.Data
                 e.Property(o => o.CreatedAt).HasColumnName("created_at")
                  .HasDefaultValueSql("datetime('now')");
                 e.Property(o => o.TrialEndsAt).HasColumnName("trial_ends_at");
+                e.Property(o => o.StripeCustomerId).HasColumnName("stripe_customer_id");
+                e.Property(o => o.StripeSubscriptionId).HasColumnName("stripe_subscription_id");
                 e.Property(o => o.CompanyName).HasColumnName("company_name");
                 e.Property(o => o.CompanyEmail).HasColumnName("company_email");
                 e.Property(o => o.Phone).HasColumnName("phone");
@@ -276,6 +284,42 @@ namespace RoofingLeadGeneration.Data
                  .WithMany()
                  .HasForeignKey(t => t.UserId)
                  .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // ── ReportCreditGrant ────────────────────────────────────────
+            m.Entity<ReportCreditGrant>(e =>
+            {
+                e.ToTable("report_credit_grants");
+                e.HasKey(g => g.Id);
+                e.Property(g => g.Id).HasColumnName("id");
+                e.Property(g => g.OrgId).HasColumnName("org_id");
+                e.Property(g => g.Source).HasColumnName("source").IsRequired();
+                e.Property(g => g.Amount).HasColumnName("amount");
+                e.Property(g => g.Remaining).HasColumnName("remaining");
+                e.Property(g => g.ExpiresAt).HasColumnName("expires_at");
+                e.Property(g => g.CreatedByUserId).HasColumnName("created_by_user_id");
+                e.Property(g => g.Description).HasColumnName("description").HasDefaultValue("");
+                e.Property(g => g.GrantedAt).HasColumnName("granted_at")
+                 .HasDefaultValueSql("datetime('now')");
+
+                e.HasIndex(g => g.OrgId);
+                e.HasIndex(g => g.ExpiresAt);
+
+                e.HasOne(g => g.Org)
+                 .WithMany()
+                 .HasForeignKey(g => g.OrgId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── StripeWebhookEvent ───────────────────────────────────────
+            m.Entity<StripeWebhookEvent>(e =>
+            {
+                e.ToTable("stripe_webhook_events");
+                e.HasKey(x => x.EventId);
+                e.Property(x => x.EventId).HasColumnName("event_id");
+                e.Property(x => x.EventType).HasColumnName("event_type").IsRequired();
+                e.Property(x => x.ProcessedAt).HasColumnName("processed_at")
+                 .HasDefaultValueSql("datetime('now')");
             });
 
             // ── SentAlert ────────────────────────────────────────────────

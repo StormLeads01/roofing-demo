@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
 using RoofingLeadGeneration.Filters;
+using RoofingLeadGeneration.Services;
 using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
@@ -10,19 +11,26 @@ namespace RoofingLeadGeneration.Controllers
     [SkipTrialGate]
     public class AdminController : Controller
     {
-        private readonly AppDbContext _db;
-        private readonly string       _adminEmail;
-        private readonly bool         _enrichmentEnabled;
+        private readonly AppDbContext        _db;
+        private readonly ReportCreditService _reportCredits;
+        private readonly string              _adminEmail;
+        private readonly bool                _enrichmentEnabled;
+        private readonly bool                _reportCreditsEnabled;
 
-        public AdminController(AppDbContext db, IConfiguration config)
+        public AdminController(AppDbContext db, ReportCreditService reportCredits, IConfiguration config)
         {
-            _db                = db;
-            _adminEmail        = config["AdminEmail"] ?? "";
-            _enrichmentEnabled = config.GetValue<bool>("FeatureFlags:EnrichmentEnabled");
+            _db                   = db;
+            _reportCredits        = reportCredits;
+            _adminEmail           = config["AdminEmail"] ?? "";
+            _enrichmentEnabled    = config.GetValue<bool>("FeatureFlags:EnrichmentEnabled");
+            _reportCreditsEnabled = config.GetValue<bool>("FeatureFlags:ReportCreditsEnabled");
         }
 
         private bool IsAdmin() =>
             string.Equals(User.FindFirst(ClaimTypes.Email)?.Value ?? "", _adminEmail, StringComparison.OrdinalIgnoreCase);
+
+        private long? CurrentUserId =>
+            long.TryParse(User.FindFirst("user_db_id")?.Value, out var id) ? id : null;
 
         // ── GET /Admin ───────────────────────────────────────────────
         [HttpGet]
@@ -33,7 +41,8 @@ namespace RoofingLeadGeneration.Controllers
             var now = DateTime.UtcNow;
             var som = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-            ViewBag.EnrichmentEnabled = _enrichmentEnabled;
+            ViewBag.EnrichmentEnabled    = _enrichmentEnabled;
+            ViewBag.ReportCreditsEnabled = _reportCreditsEnabled;
             ViewBag.TotalUsers  = await _db.Users.CountAsync();
             ViewBag.TotalLeads  = await _db.Leads.CountAsync();
             ViewBag.LeadsMonth  = await _db.Leads.CountAsync(l => l.SavedAt >= som);
@@ -43,7 +52,14 @@ namespace RoofingLeadGeneration.Controllers
                 ViewBag.EnrichMonth = await _db.Enrichments.CountAsync(e => e.CreatedAt >= som);
             }
 
-            ViewBag.Users = await _db.Users
+            // Platform-wide report-credit activity, from the ledger (not the
+            // grant table) so it reflects actual usage, not just what's banked.
+            ViewBag.ReportsGenerated = await _db.OrgCreditTransactions
+                .CountAsync(t => t.CreditType == "report" && t.Amount < 0);
+            ViewBag.ReportsMonth = await _db.OrgCreditTransactions
+                .CountAsync(t => t.CreditType == "report" && t.Amount < 0 && t.CreatedAt >= som);
+
+            var users = await _db.Users
                 .OrderByDescending(u => u.CreatedAt)
                 .Select(u => new UserRow
                 {
@@ -64,6 +80,35 @@ namespace RoofingLeadGeneration.Controllers
                 })
                 .ToListAsync();
 
+            // Report-credit balances are per-batch (rollover cap/expiration —
+            // see ReportCreditGrant) so they can't be projected in the query
+            // above; sum non-expired grants per org separately and merge in.
+            var nowUtc = DateTime.UtcNow;
+            var balances = await _db.ReportCreditGrants
+                .Where(g => g.Remaining > 0 && (g.ExpiresAt == null || g.ExpiresAt > nowUtc))
+                .GroupBy(g => g.OrgId)
+                .Select(g => new { OrgId = g.Key, Balance = g.Sum(x => x.Remaining) })
+                .ToDictionaryAsync(x => x.OrgId, x => x.Balance);
+
+            foreach (var u in users)
+                u.ReportCredits = u.OrgId.HasValue && balances.TryGetValue(u.OrgId.Value, out var b) ? b : 0;
+
+            // PDFs generated per login — same ledger as the platform-wide
+            // ReportsGenerated stat above (OrgCreditTransactions debits),
+            // grouped by the UserId who triggered each one instead of by org.
+            // UserId is null for system/Stripe-originated transactions, so
+            // those are naturally excluded here (a user can't "generate" one).
+            var pdfCounts = await _db.OrgCreditTransactions
+                .Where(t => t.CreditType == "report" && t.Amount < 0 && t.UserId != null)
+                .GroupBy(t => t.UserId!.Value)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
+            foreach (var u in users)
+                u.PdfCount = pdfCounts.TryGetValue(u.Id, out var c) ? c : 0;
+
+            ViewBag.Users = users;
+
             return View();
         }
 
@@ -75,7 +120,14 @@ namespace RoofingLeadGeneration.Controllers
         {
             if (!IsAdmin()) return Redirect("/");
 
-            var valid = new[] { "free", "pro", "agency" };
+            // trial/starter/pro are the current report-based tiers (see
+            // docs/pricing-refresh-punchlist.md); free/agency are kept for
+            // labeling continuity on orgs created under the old enrichment-
+            // credit model. "pro" is reused — it now means the $29.99/75-report
+            // tier, not the legacy $99 enrichment tier (Plan is a display/
+            // grouping label only; nothing gates functionality on its value
+            // except the report-credit grant amounts in ReportCreditService).
+            var valid = new[] { "trial", "starter", "pro", "free", "agency" };
             if (!valid.Contains(plan))
             {
                 TempData["AdminError"] = "Invalid plan value.";
@@ -143,6 +195,88 @@ namespace RoofingLeadGeneration.Controllers
             return RedirectToAction(nameof(Index));
         }
 
+        // ── POST /Admin/Users/{id}/ReportCredits ──────────────────────
+        // op = grant | forfeit.
+        //   grant source=subscription      → monthly allotment for the org's current plan (starter/pro), capped/rollover-aware
+        //   grant source=purchase_topup    → +3, never expires
+        //   grant source=purchase_pack50   → +50, never expires
+        //   grant source=purchase_pack100  → +100, never expires
+        //   grant source=admin_grant       → +amount (manual), never expires — e.g. seeding an existing org before enabling the gate
+        //   forfeit                        → zeroes banked subscription rollover only (purchase_* grants are never touched)
+        [HttpPost("Users/{id:long}/ReportCredits")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> GrantReportCredits(long id, string op, string? source = null, int amount = 0)
+        {
+            if (!IsAdmin()) return Redirect("/");
+
+            var org = await ResolveOrgForUserAsync(id);
+            if (org == null)
+            {
+                TempData["AdminError"] = "That user has no organization.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var adminUserId = CurrentUserId;
+
+            switch (op)
+            {
+                case "forfeit":
+                    var forfeited = await _reportCredits.ForfeitSubscriptionRolloverAsync(
+                        org.Id, adminUserId, "Admin: forfeited rollover via /Admin");
+                    TempData["AdminOk"] = forfeited > 0
+                        ? $"Forfeited {forfeited} rollover report credit(s)."
+                        : "No subscription rollover to forfeit.";
+                    break;
+
+                case "grant":
+                    switch (source)
+                    {
+                        case "subscription":
+                            if (!ReportCreditService.PlanMonthlyAllotment.ContainsKey(org.Plan))
+                            {
+                                TempData["AdminError"] = $"\"{org.Plan}\" isn't a recurring report-credit plan (starter/pro only).";
+                                break;
+                            }
+                            var granted = await _reportCredits.GrantSubscriptionAllotmentAsync(org.Id, org.Plan, adminUserId);
+                            TempData["AdminOk"] = granted > 0
+                                ? $"Granted {granted} report credit(s) — monthly allotment for \"{org.Plan}\"."
+                                : "Already at the rollover cap (3x monthly allotment) — nothing granted.";
+                            break;
+                        case "purchase_topup":
+                            await _reportCredits.GrantPurchaseAsync(org.Id, 3, "purchase_topup", adminUserId, "Admin: top-up (3 reports, $5.99)");
+                            TempData["AdminOk"] = "Granted 3 report credits (top-up).";
+                            break;
+                        case "purchase_pack50":
+                            await _reportCredits.GrantPurchaseAsync(org.Id, 50, "purchase_pack50", adminUserId, "Admin: 50-report pack ($39.99)");
+                            TempData["AdminOk"] = "Granted 50 report credits (pack).";
+                            break;
+                        case "purchase_pack100":
+                            await _reportCredits.GrantPurchaseAsync(org.Id, 100, "purchase_pack100", adminUserId, "Admin: 100-report pack ($59.99)");
+                            TempData["AdminOk"] = "Granted 100 report credits (pack).";
+                            break;
+                        case "admin_grant":
+                            if (amount <= 0)
+                            {
+                                TempData["AdminError"] = "Enter a positive amount for a manual grant.";
+                                break;
+                            }
+                            await _reportCredits.GrantAdminAsync(org.Id, amount, adminUserId, $"Admin: manual grant ({amount})");
+                            TempData["AdminOk"] = $"Granted {amount} report credit(s).";
+                            break;
+                        default:
+                            TempData["AdminError"] = "Unknown report-credit source.";
+                            break;
+                    }
+                    break;
+
+                default:
+                    TempData["AdminError"] = "Unknown report-credit operation.";
+                    break;
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
         // Resolve the org that owns a given user id (trial/plan live on the org).
         private async Task<Data.Models.Org?> ResolveOrgForUserAsync(long userId)
         {
@@ -153,17 +287,19 @@ namespace RoofingLeadGeneration.Controllers
 
         public class UserRow
         {
-            public long      Id          { get; set; }
-            public string    Email       { get; set; } = "";
-            public string    DisplayName { get; set; } = "";
-            public string    Provider    { get; set; } = "";
-            public DateTime  CreatedAt   { get; set; }
-            public int       LeadCount   { get; set; }
-            public int       EnrichCount { get; set; }
-            public DateTime? LastLeadAt  { get; set; }
-            public long?     OrgId       { get; set; }
-            public string?   Plan        { get; set; }
-            public DateTime? TrialEndsAt { get; set; }
+            public long      Id            { get; set; }
+            public string    Email         { get; set; } = "";
+            public string    DisplayName   { get; set; } = "";
+            public string    Provider      { get; set; } = "";
+            public DateTime  CreatedAt     { get; set; }
+            public int       LeadCount     { get; set; }
+            public int       EnrichCount   { get; set; }
+            public DateTime? LastLeadAt    { get; set; }
+            public long?     OrgId         { get; set; }
+            public string?   Plan          { get; set; }
+            public DateTime? TrialEndsAt   { get; set; }
+            public int       ReportCredits { get; set; }
+            public int       PdfCount      { get; set; }
         }
     }
 }

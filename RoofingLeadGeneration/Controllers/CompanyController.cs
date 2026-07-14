@@ -85,7 +85,7 @@ namespace RoofingLeadGeneration.Controllers
                 org.HeaderColor = headerColor.Trim();
 
             // Logos are stored on the persistent data volume so they survive redeploys
-            var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+            var logosDir = Path.Combine(_env.ContentRootPath, "App_Data", "logos");
             Directory.CreateDirectory(logosDir);
 
             // Handle logo removal
@@ -137,7 +137,7 @@ namespace RoofingLeadGeneration.Controllers
         [HttpGet("Logo/{id:long}")]
         public IActionResult Logo(long id)
         {
-            var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+            var logosDir = Path.Combine(_env.ContentRootPath, "App_Data", "logos");
             // Find any file whose name starts with the orgId (ext may vary)
             var file = Directory.EnumerateFiles(logosDir)
                 .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f) == id.ToString());

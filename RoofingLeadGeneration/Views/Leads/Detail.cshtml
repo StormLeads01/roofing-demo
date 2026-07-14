@@ -24,6 +24,7 @@
     };
     var statusCssClass = "status-" + (statusCssMap.ContainsKey(Model.Status) ? statusCssMap[Model.Status] : "new");
     var canEnrich = (bool)(ViewBag.CanEnrich ?? false);
+    var enrichmentEnabled = Configuration.GetValue<bool>("FeatureFlags:EnrichmentEnabled");
     var primaryContact = Model.Contacts.FirstOrDefault(c => c.IsPrimary) ?? Model.Contacts.FirstOrDefault();
     var hailSizeNum = 0.0;
     double.TryParse(System.Text.RegularExpressions.Regex.Match(Model.HailSize ?? "", @"[\d.]+").Value, out hailSizeNum);
@@ -511,14 +512,18 @@
                 <i class="fa-solid fa-user-plus text-2xl text-slate-600"></i>
             </div>
             <p class="text-slate-300 font-semibold">No contacts yet</p>
-            <p class="text-slate-500 text-sm max-w-xs">Enrich this lead to pull owner name, phone, and email from Whitepages Pro or BatchSkipTracing.</p>
-            @if (canEnrich) {
-                <button onclick="detailEnrich(@Model.Id)"
-                    class="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-dark text-white text-sm font-semibold transition shadow">
-                    <i class="fa-solid fa-bolt"></i>Enrich this lead
-                </button>
+            @if (enrichmentEnabled) {
+                <p class="text-slate-500 text-sm max-w-xs">Enrich this lead to pull owner name, phone, and email from Whitepages Pro or BatchSkipTracing.</p>
+                @if (canEnrich) {
+                    <button onclick="detailEnrich(@Model.Id)"
+                        class="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-dark text-white text-sm font-semibold transition shadow">
+                        <i class="fa-solid fa-bolt"></i>Enrich this lead
+                    </button>
+                } else {
+                    <p class="text-xs text-slate-600">Contact an owner or manager to run enrichment.</p>
+                }
             } else {
-                <p class="text-xs text-slate-600">Contact an owner or manager to run enrichment.</p>
+                <p class="text-slate-500 text-sm max-w-xs">Contact enrichment isn't currently available.</p>
             }
         </div>
     } else {

@@ -3,10 +3,13 @@
     Layout = null;
     var totalUsers  = (int)(ViewBag.TotalUsers  ?? 0);
     var totalLeads  = (int)(ViewBag.TotalLeads  ?? 0);
-    var enrichmentEnabled = ViewBag.EnrichmentEnabled is true;
-    var totalEnrich = (int)(ViewBag.TotalEnrich ?? 0);
-    var enrichMonth = (int)(ViewBag.EnrichMonth ?? 0);
-    var leadsMonth  = (int)(ViewBag.LeadsMonth  ?? 0);
+    var enrichmentEnabled    = ViewBag.EnrichmentEnabled is true;
+    var reportCreditsEnabled = ViewBag.ReportCreditsEnabled is true;
+    var totalEnrich  = (int)(ViewBag.TotalEnrich ?? 0);
+    var enrichMonth  = (int)(ViewBag.EnrichMonth ?? 0);
+    var leadsMonth   = (int)(ViewBag.LeadsMonth  ?? 0);
+    var reportsGenerated = (int)(ViewBag.ReportsGenerated ?? 0);
+    var reportsMonth     = (int)(ViewBag.ReportsMonth     ?? 0);
     var users       = ViewBag.Users as List<AdminController.UserRow> ?? new();
 }
 <!DOCTYPE html>
@@ -78,7 +81,7 @@
     }
 
     <!-- Platform stats -->
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+    <div class="grid grid-cols-2 lg:grid-cols-5 xl:grid-cols-7 gap-4 mb-8">
         <div class="stat-card">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Users</p>
             <p class="text-3xl font-extrabold text-white">@totalUsers</p>
@@ -107,7 +110,27 @@
             <p class="text-xs text-slate-500 mt-1">current month</p>
         </div>
         }
+        <div class="stat-card">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Reports Generated</p>
+            <p class="text-3xl font-extrabold text-white">@reportsGenerated</p>
+            <p class="text-xs text-slate-500 mt-1">all time</p>
+        </div>
+        <div class="stat-card">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Reports / Month</p>
+            <p class="text-3xl font-extrabold text-brand">@reportsMonth</p>
+            <p class="text-xs text-slate-500 mt-1">current month</p>
+        </div>
     </div>
+
+    @if (!reportCreditsEnabled)
+    {
+        <div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 px-4 py-3 text-sm">
+            <i class="fa-solid fa-circle-info mr-2"></i>
+            Report-credit gating is <strong>off</strong> (FeatureFlags:ReportCreditsEnabled = false) — PDF report
+            generation is unlimited for everyone right now. Grants below still record balances so you can seed
+            existing orgs before flipping the flag on. See docs/pricing-refresh-punchlist.md.
+        </div>
+    }
 
     <!-- Users table -->
     <div class="rounded-2xl border border-slate-700/60 overflow-hidden shadow-xl bg-slate-800/40">
@@ -122,12 +145,13 @@
                 <thead>
                     <tr>
                         <th class="text-left">User</th>
-                        <th class="text-left">Provider</th>
                         <th class="text-left">Leads</th>
                         @if (enrichmentEnabled) { <th class="text-left">Enrichments</th> }
+                        <th class="text-left">PDFs Generated</th>
                         <th class="text-left">Last Lead</th>
                         <th class="text-left">Joined</th>
                         <th class="text-left">Plan / Trial</th>
+                        <th class="text-left">Report Credits</th>
                         <th class="text-left">Manage Access</th>
                     </tr>
                 </thead>
@@ -167,17 +191,9 @@
                                     <p class="font-semibold text-white text-xs">@(string.IsNullOrEmpty(u.DisplayName) ? "—" : u.DisplayName)</p>
                                     <p class="text-slate-500 text-xs">@u.Email</p>
                                 </td>
-                                <td>
-                                    @if (u.Provider == "Google") {
-                                        <span class="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs">Google</span>
-                                    } else if (u.Provider == "Microsoft") {
-                                        <span class="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 text-xs">Microsoft</span>
-                                    } else {
-                                        <span class="px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-400 border border-slate-600 text-xs">@u.Provider</span>
-                                    }
-                                </td>
                                 <td class="font-semibold text-white">@u.LeadCount</td>
                                 @if (enrichmentEnabled) { <td class="font-semibold text-white">@u.EnrichCount</td> }
+                                <td class="font-semibold text-white">@u.PdfCount</td>
                                 <td class="text-slate-400 whitespace-nowrap">@lastLead</td>
                                 <td class="text-slate-400 whitespace-nowrap">@joined</td>
                                 <td class="whitespace-nowrap">
@@ -188,12 +204,48 @@
                                     @if (u.OrgId != null)
                                     {
                                         <div class="flex flex-col gap-1.5">
+                                            <p class="text-sm font-bold text-white">@u.ReportCredits <span class="text-xs font-normal text-slate-500">credits</span></p>
+                                            <form method="post" action="/Admin/Users/@u.Id/ReportCredits" class="flex items-center gap-1">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="op" value="grant" />
+                                                <select name="source" class="bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1">
+                                                    <option value="subscription">monthly (plan)</option>
+                                                    <option value="purchase_topup">top-up (+3)</option>
+                                                    <option value="purchase_pack50">50-pack</option>
+                                                    <option value="purchase_pack100">100-pack</option>
+                                                    <option value="admin_grant">manual amount</option>
+                                                </select>
+                                                <input type="number" name="amount" value="1" min="1" title="Only used for 'manual amount'"
+                                                       class="w-12 bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1" />
+                                                <button type="submit" class="px-2 py-1 rounded bg-brand hover:bg-brand-dark text-white text-xs">Grant</button>
+                                            </form>
+                                            <form method="post" action="/Admin/Users/@u.Id/ReportCredits" class="flex items-center gap-1">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="op" value="forfeit" />
+                                                <button type="submit" class="px-2 py-1 rounded bg-red-600/80 hover:bg-red-600 text-white text-xs"
+                                                        title="Zeroes banked subscription rollover only — purchased credits (top-up/packs) are never forfeited">
+                                                    Forfeit rollover
+                                                </button>
+                                            </form>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-600 text-xs">—</span>
+                                    }
+                                </td>
+                                <td class="whitespace-nowrap">
+                                    @if (u.OrgId != null)
+                                    {
+                                        <div class="flex flex-col gap-1.5">
                                             <form method="post" action="/Admin/Users/@u.Id/Plan" class="flex items-center gap-1">
                                                 @Html.AntiForgeryToken()
                                                 <select name="plan" class="bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1">
-                                                    <option value="free" selected="@(u.Plan == "free" ? "selected" : null)">free</option>
-                                                    <option value="pro" selected="@(u.Plan == "pro" ? "selected" : null)">pro</option>
-                                                    <option value="agency" selected="@(u.Plan == "agency" ? "selected" : null)">agency</option>
+                                                    <option value="trial" selected="@(u.Plan == "trial" ? "selected" : null)">trial (14-day, 1 report)</option>
+                                                    <option value="starter" selected="@(u.Plan == "starter" ? "selected" : null)">starter ($9.99, 10/mo)</option>
+                                                    <option value="pro" selected="@(u.Plan == "pro" ? "selected" : null)">pro ($29.99, 75/mo)</option>
+                                                    <option value="free" selected="@(u.Plan == "free" ? "selected" : null)">free (legacy)</option>
+                                                    <option value="agency" selected="@(u.Plan == "agency" ? "selected" : null)">agency (legacy)</option>
                                                 </select>
                                                 <button type="submit" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Set plan</button>
                                             </form>
@@ -218,7 +270,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="8" class="text-center text-slate-500 py-10 text-sm">
+                            <td colspan="9" class="text-center text-slate-500 py-10 text-sm">
                                 <i class="fa-solid fa-users text-3xl text-slate-700 block mb-2"></i>
                                 No users yet
                             </td>

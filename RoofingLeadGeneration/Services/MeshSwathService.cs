@@ -67,12 +67,16 @@ namespace RoofingLeadGeneration.Services
         // Same size bands as the Phase 1 LSR swath (RealDataService), in inches.
         private static readonly double[] SizeBandsInches = { 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0 };
 
-        public MeshSwathService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<MeshSwathService> logger)
+        public MeshSwathService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<MeshSwathService> logger, IWebHostEnvironment env)
         {
             _httpFactory = httpFactory;
             _logger      = logger;
 
-            var defaultCacheDir = Path.Combine(AppContext.BaseDirectory, "data", "mesh-cache");
+            // App_Data (project root, survives bin/obj cleans), not BaseDirectory
+            // (bin/Debug/net8.0) — see Program.cs's App_Data comment. This cache
+            // is regenerable either way, but keeping it alongside the other
+            // App_Data folders avoids yet another data/ vs Data/ collision.
+            var defaultCacheDir = Path.Combine(env.ContentRootPath, "App_Data", "mesh-cache");
             _cacheDir = string.IsNullOrWhiteSpace(config["Mesh:CacheDir"]) ? defaultCacheDir : config["Mesh:CacheDir"]!;
             Directory.CreateDirectory(_cacheDir);
 

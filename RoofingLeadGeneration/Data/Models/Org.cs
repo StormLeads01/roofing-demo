@@ -12,6 +12,12 @@ namespace RoofingLeadGeneration.Data.Models
         /// <summary>When the org's trial period ends. Null = no active trial (legacy org or paid plan).</summary>
         public DateTime? TrialEndsAt { get; set; }
 
+        // ── Stripe ────────────────────────────────────────────────
+        /// <summary>Stripe Customer ID (cus_...). Created on first checkout, reused for every later purchase/subscription.</summary>
+        public string? StripeCustomerId     { get; set; }
+        /// <summary>Active Stripe Subscription ID (sub_...) for Starter/Pro. Null if no subscription (trial, one-time-pack-only, or canceled).</summary>
+        public string? StripeSubscriptionId { get; set; }
+
         // ── Branding ──────────────────────────────────────────────
         /// <summary>Display name used on PDF reports (may differ from org Name)</summary>
         public string? CompanyName    { get; set; }

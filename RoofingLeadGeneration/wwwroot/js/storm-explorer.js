@@ -56,6 +56,12 @@
     var meshFetchQueue    = [];   // date strings waiting to be fetched
     var meshFetchInFlight = new Set(); // date strings currently being fetched
 
+    // Draw-a-rectangle bulk lead capture ("Select Area" button)
+    var seAreaSelectMode = false;   // true while armed, from button click to a completed drag
+    var seAreaDrawing    = false;   // true only during the actual mousedown->mouseup drag
+    var seAreaStart      = null;    // L.LatLng where the drag began
+    var seAreaRect       = null;    // live preview L.Rectangle while dragging
+
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -134,6 +140,107 @@
             if (swathLegend) { swathLegend.remove();           swathLegend = null; }
         }
     };
+
+    /**
+     * Arm/disarm "Select Area" — click-drag a rectangle on the map to bulk-
+     * capture every address inside it as a lead. While armed, map dragging
+     * is disabled so a drag draws a rectangle instead of panning; the actual
+     * draw is handled by seAreaMouseDown/Move/Up (bound once in buildSeMap).
+     */
+    window.toggleSeAreaSelect = function () {
+        if (!seMap) return;
+        seAreaSelectMode = !seAreaSelectMode;
+
+        var btn = document.getElementById('seAreaSelectBtn');
+        if (btn) {
+            btn.classList.toggle('border-brand',     seAreaSelectMode);
+            btn.classList.toggle('text-white',       seAreaSelectMode);
+            btn.classList.toggle('bg-brand/20',      seAreaSelectMode);
+            btn.classList.toggle('border-slate-600', !seAreaSelectMode);
+            btn.classList.toggle('text-slate-400',   !seAreaSelectMode);
+            btn.classList.toggle('bg-slate-900',     !seAreaSelectMode);
+        }
+
+        seMap.dragging[seAreaSelectMode ? 'disable' : 'enable']();
+        seMap.getContainer().style.cursor = seAreaSelectMode ? 'crosshair' : '';
+
+        if (!seAreaSelectMode && seAreaRect) {
+            seMap.removeLayer(seAreaRect);
+            seAreaRect = null;
+        }
+    };
+
+    // ── Draw-a-rectangle handlers (bound once in buildSeMap) ──────────────
+    function seAreaMouseDown(e) {
+        if (!seAreaSelectMode) return;
+        seAreaDrawing = true;
+        seAreaStart   = e.latlng;
+        if (seAreaRect) { seMap.removeLayer(seAreaRect); seAreaRect = null; }
+    }
+
+    function seAreaMouseMove(e) {
+        if (!seAreaDrawing || !seAreaStart) return;
+        var bounds = L.latLngBounds(seAreaStart, e.latlng);
+        if (seAreaRect) seAreaRect.setBounds(bounds);
+        else seAreaRect = L.rectangle(bounds, { color: '#f97316', weight: 2, fillOpacity: 0.08 }).addTo(seMap);
+    }
+
+    function seAreaMouseUp(e) {
+        if (!seAreaDrawing) return;
+        seAreaDrawing = false;
+        var start = seAreaStart;
+        seAreaStart = null;
+        if (!start) return;
+
+        var bounds = L.latLngBounds(start, e.latlng);
+        var sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+
+        // A click (no real drag) collapses to a ~zero-size box — ignore it
+        // and stay in select mode so the user can try dragging instead.
+        if (seHaversine(sw.lat, sw.lng, ne.lat, ne.lng) < 0.02) {
+            if (seAreaRect) { seMap.removeLayer(seAreaRect); seAreaRect = null; }
+            return;
+        }
+
+        fetchSeAreaLeads(bounds);
+
+        // Leaflet still fires a 'click' event right after this mouseup even
+        // though map dragging is disabled (no actual pan occurred) — defer
+        // turning select mode off so handleSeMapClick's own guard (checked
+        // first thing below) sees seAreaSelectMode still true and bails,
+        // instead of also popping up a single-address "Add to Leads" popup.
+        setTimeout(function () { window.toggleSeAreaSelect(); }, 0);
+    }
+
+    function fetchSeAreaLeads(bounds) {
+        var north = bounds.getNorth(), south = bounds.getSouth();
+        var east  = bounds.getEast(),  west  = bounds.getWest();
+
+        if (window.showToast) showToast('Scanning selected area…', true);
+
+        fetch('/RoofHealth/Area?north=' + north + '&south=' + south + '&east=' + east + '&west=' + west)
+            .then(function (resp) {
+                if (!resp.ok) return resp.json().then(function (err) { throw new Error(err.error || 'Area scan failed.'); });
+                return resp.json();
+            })
+            .then(function (data) {
+                if (!data.properties || !data.properties.length) {
+                    if (window.showToast) showToast('No addresses found in that area.', false);
+                    return;
+                }
+                // Hand off to the existing neighborhood-scan results section
+                // (renderResults/allProperties/Select All/Save Selected in
+                // site.js) — it already does exactly what's needed here:
+                // review a property list with risk badges, then bulk-save.
+                if (typeof currentAddress !== 'undefined') currentAddress = data.centerAddress;
+                if (typeof allProperties  !== 'undefined') allProperties  = data.properties || [];
+                if (typeof allHailEvents  !== 'undefined') allHailEvents  = data.hailEvents  || [];
+                if (typeof renderResults === 'function') renderResults(data);
+            })
+            .catch(function (err) {
+                if (window.showToast) showToast(err.message || 'Could not scan that area.', false);
+            });
+    }
 
     /** Map a sizeBand threshold to a stroke/fill colour (red centre → yellow outer). */
     function swathColor(sizeBand) {
@@ -398,7 +505,7 @@
                 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
                 { attribution: '&copy; CARTO', maxZoom: 19 }
               );
-        tileStreet.addTo(seMap);
+        tileSatGroup.addTo(seMap);
         L.control.layers(
             { 'Dark Street': tileStreet, 'Satellite': tileSatGroup },
             {},
@@ -415,6 +522,122 @@
         seHoverControl.addTo(seMap);
 
         seMap.on('moveend', function () { scheduleSeLoad(700); });
+        seMap.on('click', handleSeMapClick);
+        seMap.on('mousedown', seAreaMouseDown);
+        seMap.on('mousemove', seAreaMouseMove);
+        seMap.on('mouseup', seAreaMouseUp);
+    }
+
+    // ── Click-to-add-lead ────────────────────────────────────────────────
+    // Separate from the swath hover panel above (that's mouseover/mouseout
+    // on individual swath layers; this is a map-level click listener, so
+    // both work independently — clicking on top of a swath still resolves
+    // the address under the cursor, not the swath itself).
+    function handleSeMapClick(e) {
+        // Area-select drags also end in a map 'click' event — let seAreaMouseUp
+        // own that gesture instead of also popping up a single-address add.
+        if (seAreaSelectMode || seAreaDrawing) return;
+
+        var lat = e.latlng.lat, lng = e.latlng.lng;
+
+        var popup = L.popup({ closeButton: true, maxWidth: 260 })
+            .setLatLng(e.latlng)
+            .setContent('<div style="font-size:13px;color:#0f172a">Looking up address&hellip;</div>')
+            .openOn(seMap);
+
+        if (!window.google || !google.maps || !google.maps.Geocoder) {
+            popup.setContent('<div style="font-size:13px;color:#dc2626">Address lookup isn\'t ready yet &mdash; wait a moment and try again.</div>');
+            return;
+        }
+
+        new google.maps.Geocoder().geocode({ location: { lat: lat, lng: lng } }, function (results, status) {
+            // Popup may have been closed (user clicked elsewhere) before this resolves.
+            if (!seMap.hasLayer(popup)) return;
+
+            if (status !== 'OK' || !results || !results.length) {
+                popup.setContent('<div style="font-size:13px;color:#dc2626">No address found at this location.</div>');
+                return;
+            }
+
+            var address = results[0].formatted_address;
+            popup.setContent('<div style="font-size:13px;color:#0f172a">Checking storm history&hellip;</div>');
+
+            // Pull real risk/hail/storm-date for this point the same way the
+            // neighborhood/single-address scan does — /Leads/Save only stores
+            // whatever fields it's given, so without this the saved lead (and
+            // its PDF report, which reads lead.RiskLevel/HailSize/LastStormDate
+            // directly) shows "Unknown"/"Not recorded".
+            fetch('/RoofHealth/SingleAddress?address=' + encodeURIComponent(address) +
+                  '&lat=' + lat + '&lng=' + lng)
+                .then(function (resp) { return resp.ok ? resp.json() : null; })
+                .then(function (data) {
+                    if (!seMap.hasLayer(popup)) return;
+
+                    var record = data && data.properties && data.properties[0];
+                    // Fall back to a bare record (no storm data) rather than
+                    // blocking the add entirely if the lookup fails/errors.
+                    if (!record) record = { address: address, lat: lat, lng: lng, riskLevel: '', hailSize: '', lastStormDate: '' };
+
+                    var hasRisk  = !!record.riskLevel;
+                    var color    = hasRisk ? riskColor(record.riskLevel) : '#94a3b8';
+                    var riskText = hasRisk ? record.riskLevel : 'Unknown';
+                    var hailText = record.hailSize && record.hailSize !== 'No data' ? record.hailSize : 'No data';
+                    var dateText = record.lastStormDate && record.lastStormDate !== 'No data' ? record.lastStormDate : 'No data';
+
+                    popup.setContent(
+                        '<div style="font-size:13px;min-width:210px">' +
+                        '<div style="font-weight:700;color:#0f172a;margin-bottom:8px;line-height:1.3">' + escapeHtml(record.address || address) + '</div>' +
+                        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">' +
+                        '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';display:inline-block"></span>' +
+                        '<span style="font-weight:700;color:' + color + '">' + riskText + ' risk</span>' +
+                        '<span style="color:#64748b">&middot; ' + hailText + ' &middot; ' + dateText + '</span>' +
+                        '</div>' +
+                        '<button id="seAddLeadBtn" type="button" ' +
+                        'style="background:#f97316;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;width:100%">' +
+                        'Add to Leads</button>' +
+                        '</div>'
+                    );
+
+                    // Scoped to THIS popup's own DOM subtree rather than a bare
+                    // document.getElementById lookup — every popup reuses the
+                    // same "seAddLeadBtn" id, so a global lookup risked grabbing
+                    // a previous (closing/closed) popup's button on a second
+                    // click, silently attaching the click handler to a dead
+                    // node and leaving the visible "Add to Leads" button inert.
+                    var popupEl = popup.getElement();
+                    var btn = popupEl ? popupEl.querySelector('#seAddLeadBtn') : null;
+                    if (!btn) return;
+                    btn.onclick = function () {
+                        btn.disabled    = true;
+                        btn.textContent = 'Adding…';
+                        fetch('/Leads/Save', {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                sourceAddress: 'Storm Explorer (map click)',
+                                properties: [record]
+                            })
+                        })
+                        .then(function (resp) {
+                            if (!resp.ok) return resp.json().then(function (err) { throw new Error(err.error || 'Save failed'); });
+                            return resp.json();
+                        })
+                        .then(function () {
+                            if (window.showToast) showToast('Lead added: ' + (record.address || address), true);
+                            seMap.closePopup();
+                        })
+                        .catch(function (err) {
+                            if (window.showToast) showToast(err.message || 'Could not add lead.', false);
+                            btn.disabled    = false;
+                            btn.textContent = 'Add to Leads';
+                        });
+                    };
+                })
+                .catch(function () {
+                    if (!seMap.hasLayer(popup)) return;
+                    popup.setContent('<div style="font-size:13px;color:#dc2626">Could not look up storm history for this location.</div>');
+                });
+        });
     }
 
     // ── Debounced load ───────────────────────────────────────────────────

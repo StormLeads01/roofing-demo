@@ -14,8 +14,32 @@ QuestPDF.Settings.License = LicenseType.Community;
 var builder = WebApplication.CreateBuilder(args);
 var config  = builder.Configuration;
 
+// Stripe.net reads this static key by default for every Stripe.* service
+// class instantiated with no explicit client. Blank until Stripe:SecretKey
+// is filled in — BillingController checks for that before making any Stripe
+// call, so a blank key here just means billing endpoints return a friendly
+// "not set up yet" error instead of an auth failure.
+Stripe.StripeConfiguration.ApiKey = config["Stripe:SecretKey"];
+
+// NOTE: embedded Checkout's ui_mode=embedded_page requires Stripe API version
+// 2026-03-25.dahlia or later. Stripe.net has no public way to override the
+// API version per-call or globally (RequestOptions.StripeVersion and
+// StripeConfiguration.ApiVersion's setter are both internal-only in this
+// SDK) — so the fix is using an SDK version that already defaults to Dahlia.
+// Stripe.net 51.0.1 pins 2026-03-25.dahlia out of the box; see .csproj.
+
 // ── Data Protection (persist keys so auth cookies survive redeploys) ──────
-var keysDir = Path.Combine(AppContext.BaseDirectory, "data", "dp-keys");
+// NOTE: this and the DB path below use ContentRootPath (the project folder),
+// NOT AppContext.BaseDirectory (the bin/Debug/net8.0 build output folder).
+// They used to point at BaseDirectory, which meant the real SQLite DB and
+// auth keys lived inside a folder Visual Studio treats as disposable build
+// output — a bin/obj clean silently wiped real user data. Folder is named
+// "App_Data" (not "data") because Windows filesystems are case-insensitive:
+// "data" collides with the existing Data/ source folder (AppDbContext.cs,
+// Models/) at this same project-root level, which merges runtime binary
+// files into source control territory. App_Data is also the ASP.NET
+// convention IIS won't serve as static content.
+var keysDir = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "dp-keys");
 Directory.CreateDirectory(keysDir);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysDir));
@@ -29,7 +53,7 @@ builder.Services.AddControllersWithViews(o =>
 builder.Services.AddMemoryCache();
 
 // ── Database (EF Core + SQLite) ───────────────────────────────────────────
-var dbPath = Path.Combine(AppContext.BaseDirectory, "data", "leads.db");
+var dbPath = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "leads.db");
 Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -126,6 +150,8 @@ builder.Services.AddSingleton<RealDataService>();
 builder.Services.AddSingleton<MeshSwathService>();
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton<HailReportService>();
+builder.Services.AddScoped<ReportCreditService>();
+builder.Services.AddScoped<StripeService>();
 builder.Services.AddHostedService<StormAlertService>();
 
 // ── Pipeline ──────────────────────────────────────────────────────────────
@@ -221,6 +247,8 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("orgs", "license_number", "TEXT");
     AddColumnIfMissing("orgs", "logo_path",      "TEXT");
     AddColumnIfMissing("orgs", "trial_ends_at",  "TEXT");
+    AddColumnIfMissing("orgs", "stripe_customer_id",     "TEXT");
+    AddColumnIfMissing("orgs", "stripe_subscription_id", "TEXT");
 
     // ── Org additional info (address & social links) ───────────────────────
     AddColumnIfMissing("orgs", "address",             "TEXT");
@@ -395,6 +423,47 @@ using (var scope = app.Services.CreateScope())
         cmd.CommandText = "CREATE INDEX ix_org_credit_tx_user_id    ON org_credit_transactions(user_id)";
         cmd.ExecuteNonQuery();
         cmd.CommandText = "CREATE INDEX ix_org_credit_tx_created_at ON org_credit_transactions(created_at)";
+        cmd.ExecuteNonQuery();
+    }
+
+    if (!TableExists("report_credit_grants"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE report_credit_grants (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id              INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+                source              TEXT NOT NULL,
+                amount              INTEGER NOT NULL,
+                remaining           INTEGER NOT NULL,
+                expires_at          TEXT,
+                created_by_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                description         TEXT NOT NULL DEFAULT '',
+                granted_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_report_credit_grants_org_id     ON report_credit_grants(org_id)";
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = "CREATE INDEX ix_report_credit_grants_expires_at ON report_credit_grants(expires_at)";
+        cmd.ExecuteNonQuery();
+    }
+
+    // Stripe can (and does) redeliver the same webhook event more than once
+    // (retries on timeout, manual resends from the dashboard, etc.). Since a
+    // webhook directly grants report credits, processing the same event
+    // twice would double-grant. This table is just a "have we seen this
+    // Stripe event ID before" check — see BillingController.Webhook.
+    if (!TableExists("stripe_webhook_events"))
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE stripe_webhook_events (
+                event_id     TEXT PRIMARY KEY,
+                event_type   TEXT NOT NULL,
+                processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """;
         cmd.ExecuteNonQuery();
     }
 

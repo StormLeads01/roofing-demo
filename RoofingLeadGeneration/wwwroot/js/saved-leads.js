@@ -1,7 +1,9 @@
 // saved-leads.js
 let allLeads      = [];
 let sortCol       = 'riskLevel';
-let sortDir       = 'desc';
+// riskOrder (see getSortValue) ranks High=0, Medium=1, Low=2, so 'asc' sorts
+// High -> Medium -> Low, i.e. Low sinks to the bottom of the list by default.
+let sortDir       = 'asc';
 let activeFilter  = 'all';
 let activeTab     = 'pipeline';   // 'pipeline' | 'closed' | 'archived'
 let selectedIds   = new Set();
@@ -465,25 +467,12 @@ function buildRow(lead) {
              enrichBtn + penBtn + notesBtn + stormBtn +
              '<button onclick="archiveLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Archive"><i class="fa-solid fa-box-archive text-xs"></i></button></div>';
     } else if (activeTab === 'pipeline' || activeTab === 'closed') {
-        const hasContacts = (lead.contacts && lead.contacts.length > 0);
-        const contactsOpen = viewingContactsId === lead.id;
-        const cCount = hasContacts ? lead.contacts.length : 0;
-        const contactsBtnCls = hasContacts
-            ? (contactsOpen
-                ? 'rounded-lg flex items-center justify-center gap-1 px-1.5 h-7 bg-sky-500/30 text-sky-300 border border-sky-500/50 transition text-xs'
-                : 'rounded-lg flex items-center justify-center gap-1 px-1.5 h-7 bg-sky-500/10 hover:bg-sky-500/25 text-sky-400 border border-sky-500/20 transition text-xs')
-            : null;
-        const contactsBtn = hasContacts
-            ? '<button onclick="toggleContacts(' + lead.id + ')" class="' + contactsBtnCls + '" title="View ' + cCount + ' contact' + (cCount !== 1 ? 's' : '') + '"><i class="fa-solid fa-users"></i>' + (cCount > 1 ? '<span>' + cCount + '</span>' : '') + '</button>'
-            : '';
         ac = '<div class="flex items-center justify-center gap-1">' +
-             '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<button onclick="downloadReport(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-sky-500/10 hover:bg-sky-500/30 text-sky-400 border border-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf text-xs"></i></button>' +
-             penBtn + notesBtn + stormBtn + contactsBtn +
+             penBtn + notesBtn + stormBtn +
              '<span class="w-7 h-7 flex items-center justify-center" title="Enriched leads are protected"><i class="fa-solid fa-shield-halved text-xs text-slate-600"></i></span></div>';
     } else {
         ac = '<div class="flex items-center justify-center gap-1">' +
-             '<a href="/Leads/' + lead.id + '" class="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-500/10 hover:bg-violet-500/25 text-violet-400 border border-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>' +
              '<button onclick="restoreLead(' + lead.id + ', this)" class="w-7 h-7 rounded-lg flex items-center justify-center bg-green-500/10 hover:bg-green-500/30 text-green-400 border border-green-500/20 transition" title="Restore to active"><i class="fa-solid fa-rotate-left text-xs"></i></button>' +
              notesBtn + stormBtn + '</div>';
     }
@@ -505,36 +494,6 @@ function buildRow(lead) {
           '<button onclick="cancelEdit()" class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center bg-slate-600/40 hover:bg-slate-600 text-slate-400 border border-slate-600 transition" title="Cancel"><i class="fa-solid fa-xmark text-xs"></i></button>' +
           '</div></td></tr>'
         : '';
-
-    let contactsExpRow = '';
-    if (viewingContactsId === lead.id && lead.contacts && lead.contacts.length > 0) {
-        var ctRows = lead.contacts.map(function(c) {
-            var phoneHtml = c.phone
-                ? '<a href="tel:' + escapeAttr(c.phone) + '" class="text-sky-400 hover:text-sky-300">' + escapeHtml(c.phone) + '</a>'
-                : '<span class="text-slate-600 italic text-xs">-</span>';
-            var emailHtml = c.email
-                ? '<a href="mailto:' + escapeAttr(c.email) + '" class="text-sky-400 hover:text-sky-300 truncate">' + escapeHtml(c.email) + '</a>'
-                : '<span class="text-slate-600 italic text-xs">-</span>';
-            var typeBadge = c.contactType === 'owner'
-                ? '<span class="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-orange-500/15 text-orange-400 border border-orange-500/20">owner</span>'
-                : '<span class="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-slate-700 text-slate-400 border border-slate-600">resident</span>';
-            var primaryDot = c.isPrimary
-                ? '<span class="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-400" title="Primary contact"></span>'
-                : '';
-            return '<div class="flex items-center gap-3 py-1.5 border-b border-slate-700/50 last:border-0">' +
-                   '<div class="w-32 shrink-0 flex items-center gap-1">' + typeBadge + primaryDot + '</div>' +
-                   '<div class="w-36 shrink-0 text-slate-300 text-sm truncate">' + (c.name ? escapeHtml(c.name) : '<span class="text-slate-600 italic text-xs">-</span>') + '</div>' +
-                   '<div class="w-36 shrink-0 text-sm">' + phoneHtml + '</div>' +
-                   '<div class="min-w-0 text-sm">' + emailHtml + '</div>' +
-                   '</div>';
-        }).join('');
-        contactsExpRow = '<tr class="notes-row" data-contacts-for="' + lead.id + '">' +
-            '<td colspan="7" class="notes-row-cell">' +
-            '<div class="flex items-center justify-between mb-2">' +
-            '<span class="text-xs font-semibold text-sky-400 uppercase tracking-wide"><i class="fa-solid fa-users mr-1.5"></i>Contacts (' + lead.contacts.length + ')</span>' +
-            '<button onclick="toggleContacts(' + lead.id + ')" class="text-xs text-slate-500 hover:text-slate-300 transition"><i class="fa-solid fa-xmark"></i></button>' +
-            '</div>' + ctRows + '</td></tr>';
-    }
 
     const notesExpRow = editingNotesId === lead.id
         ? '<tr class="notes-row" data-notes-for="' + lead.id + '">' +
@@ -570,7 +529,7 @@ function buildRow(lead) {
         '</td>' +
         statusCell +
         '<td class="sticky-actions">' + ac + '</td></tr>' +
-        editExpRow + contactsExpRow + notesExpRow + buildStormHistoryExpRow(lead);
+        editExpRow + notesExpRow + buildStormHistoryExpRow(lead);
 }
 
 // ── Row actions ───────────────────────────────────────────────────
@@ -774,14 +733,13 @@ function buildMobileCard(lead) {
     const enrichedBadge = lead.isEnriched ? '<span class="text-xs text-green-400 font-semibold"><i class="fa-solid fa-check-circle mr-1"></i>Enriched</span>' : '';
 
     const reportBtn = '<button onclick="downloadReport(' + lead.id + ', this)" class="py-2 px-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20 transition" title="Download hail report PDF"><i class="fa-solid fa-file-pdf"></i></button>';
-    const viewBtn = '<a href="/Leads/' + lead.id + '" class="py-2 px-3.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition" title="View details"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>';
     const actionBtns = activeTab === 'unenriched'
         ? (canEnrich ? '<button onclick="enrichLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 active:bg-orange-500/30 transition"><i class="fa-solid fa-bolt mr-1"></i>Enrich</button>' : '') +
           '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' +
           '<button onclick="archiveLead(' + lead.id + ', this)" class="py-2 px-3.5 rounded-xl bg-slate-600/40 border border-slate-600 text-slate-400 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-box-archive"></i></button>'
         : (activeTab === 'pipeline' || activeTab === 'closed')
-        ? reportBtn + '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' + viewBtn
-        : viewBtn + '<button onclick="restoreLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold hover:bg-green-500/20 transition"><i class="fa-solid fa-rotate-left mr-1"></i>Restore</button>';
+        ? reportBtn + '<button onclick="startEdit(' + lead.id + ')" class="flex-1 py-2 rounded-xl bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-600 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>'
+        : '<button onclick="restoreLead(' + lead.id + ', this)" class="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold hover:bg-green-500/20 transition"><i class="fa-solid fa-rotate-left mr-1"></i>Restore</button>';
 
     const statusRow = activeTab !== 'archived'
         ? '<div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-700/60">' +

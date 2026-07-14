@@ -19,14 +19,16 @@ namespace RoofingLeadGeneration.Controllers
         private readonly HailReportService   _reports;
         private readonly RealDataService     _realData;
         private readonly IConfiguration      _config;
+        private readonly ReportCreditService _reportCredits;
 
-        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports, RealDataService realData, IConfiguration config)
+        public LeadsController(AppDbContext db, IWebHostEnvironment env, HailReportService reports, RealDataService realData, IConfiguration config, ReportCreditService reportCredits)
         {
             _db       = db;
             _env      = env;
             _reports  = reports;
             _realData = realData;
             _config   = config;
+            _reportCredits = reportCredits;
         }
 
         private long? CurrentUserId =>
@@ -212,6 +214,11 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ── GET /Leads/{id}/Report — download hail damage PDF ────────
+        // Gated on report-credit balance behind FeatureFlags:ReportCreditsEnabled
+        // (see ReportCreditService, docs/pricing-refresh-punchlist.md). The flag
+        // is OFF by default so this stays unlimited/unchanged until existing
+        // orgs have a starting balance and Stripe checkout exists for orgs that
+        // run out — flip it on only after both are true.
         [HttpGet("{id:long}/Report")]
         public async Task<IActionResult> Report(long id)
         {
@@ -222,6 +229,14 @@ namespace RoofingLeadGeneration.Controllers
                     l.DeletedAt == null);
 
             if (lead == null) return NotFound();
+
+            var reportCreditsEnabled = _config.GetValue<bool>("FeatureFlags:ReportCreditsEnabled");
+            if (reportCreditsEnabled && orgId.HasValue)
+            {
+                var balance = await _reportCredits.GetBalanceAsync(orgId.Value);
+                if (balance <= 0)
+                    return StatusCode(402, new { error = "No report credits remaining. Upgrade your plan or buy more reports to continue." });
+            }
 
             // Fetch storm history when we have coordinates
             List<RealDataService.HailEvent>? hailHistory = null;
@@ -301,7 +316,7 @@ namespace RoofingLeadGeneration.Controllers
                 org = await _db.Orgs.FirstOrDefaultAsync(o => o.Id == orgId);
                 if (org != null && !string.IsNullOrWhiteSpace(org.LogoPath))
                 {
-                    var logosDir = Path.Combine(AppContext.BaseDirectory, "data", "logos");
+                    var logosDir = Path.Combine(_env.ContentRootPath, "App_Data", "logos");
                     var logoPath = Path.Combine(logosDir, Path.GetFileName(org.LogoPath));
                     if (System.IO.File.Exists(logoPath))
                         logoBytes = await System.IO.File.ReadAllBytesAsync(logoPath);
@@ -333,6 +348,13 @@ namespace RoofingLeadGeneration.Controllers
 
             var generatedBy = User.Identity?.Name ?? "StormLead Pro User";
             var pdf         = _reports.Generate(lead, generatedBy, hailHistory, windHistory, org, logoBytes, mapBytes);
+
+            if (reportCreditsEnabled && orgId.HasValue)
+            {
+                await _reportCredits.ConsumeAsync(orgId.Value, 1, CurrentUserId,
+                    referenceId: lead.Id.ToString(), referenceType: "lead_report",
+                    description: $"Report generated: {lead.Address}");
+            }
 
             var filename = $"HailReport-{lead.Id}-{DateTime.Now:yyyyMMdd}.pdf";
             return File(pdf, "application/pdf", filename);

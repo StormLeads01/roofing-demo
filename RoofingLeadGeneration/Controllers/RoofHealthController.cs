@@ -349,6 +349,54 @@ namespace RoofingLeadGeneration.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
+        // GET /RoofHealth/Area?north=..&south=..&east=..&west=..
+        // Storm Explorer's "draw a rectangle" lead-capture tool. Reuses
+        // GetPropertiesAsync (the same OSM + hail lookup Neighborhood uses)
+        // against the smallest circle that fully covers the rectangle, then
+        // filters the results down to just what's actually inside it.
+        //
+        // KNOWN LIMITATION: GetPropertiesAsync caps neighbours at 149,
+        // proximity-sorted from the circle's center — for a very elongated
+        // rectangle, some of those 149 can land in the circle but outside
+        // the box (discarded below), leaving fewer results than a true bbox
+        // query would. Acceptable given the 5-mile cap keeps circles small;
+        // a real Overpass bbox query would be the fix if that's ever an issue.
+        // ─────────────────────────────────────────────────────────────────
+        [HttpGet("Area")]
+        public async Task<IActionResult> Area(double north, double south, double east, double west)
+        {
+            if (north <= south || east <= west)
+                return BadRequest(new { error = "Invalid area — draw a rectangle on the map first." });
+
+            double centerLat = (north + south) / 2.0;
+            double centerLng = (east + west) / 2.0;
+
+            // Radius from center to the far corner covers the whole rectangle;
+            // small margin so results right at the edge aren't clipped by OSM's
+            // own radius search before we get a chance to filter them.
+            double radiusMiles = RealDataService.HaversineDistanceMiles(centerLat, centerLng, north, east) + 0.25;
+            if (radiusMiles > 5.0)
+                return BadRequest(new { error = "Selected area is too large — draw a smaller box (keep it under ~5 miles across)." });
+
+            string stateAbbr = await _realData.GetStateFromLatLngAsync(centerLat, centerLng);
+            var (properties, hailEventCount, hailEvents) = await GetPropertiesAsync(
+                $"{centerLat:F5},{centerLng:F5}", centerLat, centerLng, radiusMiles, stateAbbr);
+
+            var inBox = properties
+                .Where(p => p.Lat <= north && p.Lat >= south && p.Lng <= east && p.Lng >= west)
+                .ToList();
+
+            return Json(
+                new { centerAddress = "Selected area", lat = centerLat, lng = centerLng,
+                      hailEventCount, hailEvents, osmCount = inBox.Count, properties = inBox },
+                new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented        = false
+                });
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // GET /RoofHealth/Export?address=...&radius=0.5
         // ─────────────────────────────────────────────────────────────────
         [HttpGet("Export")]

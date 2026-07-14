@@ -156,8 +156,8 @@
                 </div>
                 <div>
                     <div class="w-10 h-10 rounded-xl bg-brand/10 border border-brand/30 flex items-center justify-center text-brand font-black text-lg mb-5">3</div>
-                    <h3 class="text-lg font-bold text-white mb-2">Save, enrich & contact</h3>
-                    <p class="text-slate-400 text-sm leading-relaxed">Save your best leads, then hit the enrich button to pull the owner's name and contact info. Export to CSV or start dialing.</p>
+                    <h3 class="text-lg font-bold text-white mb-2">Save & download</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">Save your best leads, then generate a branded PDF hail report for each one to bring to the door.</p>
                 </div>
             </div>
         </div>
@@ -228,30 +228,48 @@
         <div class="max-w-5xl mx-auto">
             <div class="text-center mb-16">
                 <p class="text-brand font-semibold text-sm uppercase tracking-widest mb-3">Pricing</p>
-                <h2 class="text-3xl sm:text-4xl font-black">Start free. Scale when you're ready.</h2>
-                <p class="text-slate-400 mt-3">No contracts. Cancel anytime.</p>
+                <h2 class="text-3xl sm:text-4xl font-black">Start free. Pay for the reports you use.</h2>
+                <p class="text-slate-400 mt-3">No contracts. Cancel anytime. Every report is real radar and storm-spotter data — not a guess.</p>
             </div>
 
             <div class="grid sm:grid-cols-3 gap-6 items-start">
 
-                <!-- Free -->
+                <!-- Free Trial -->
                 <div class="card-hover bg-slate-800/60 border border-slate-700/60 rounded-2xl p-7">
-                    <p class="text-sm font-semibold text-slate-400 mb-1">Free</p>
-                    <div class="flex items-end gap-1 mb-5">
+                    <p class="text-sm font-semibold text-slate-400 mb-1">Free Trial</p>
+                    <div class="flex items-end gap-1 mb-1">
                         <span class="text-4xl font-black text-white">$0</span>
+                        <span class="text-slate-500 mb-1.5">/ 14 days</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-4">No credit card required</p>
+                    <a href="/Auth/Register" class="block text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm py-3 rounded-xl transition mb-7">
+                        Start Free Trial
+                    </a>
+                    <ul class="space-y-3 text-sm text-slate-300">
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>1 PDF hail report</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Full access to Storm Explorer &amp; Neighborhood Scan</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Real NOAA/NEXRAD hail data</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Claim window countdown by state</li>
+                    </ul>
+                </div>
+
+                <!-- Starter -->
+                <div class="card-hover bg-slate-800/60 border border-slate-700/60 rounded-2xl p-7">
+                    <p class="text-sm font-semibold text-slate-400 mb-1">Starter</p>
+                    <div class="flex items-end gap-1 mb-1">
+                        <span class="text-4xl font-black text-white">$9.99</span>
                         <span class="text-slate-500 mb-1.5">/month</span>
                     </div>
+                    <p class="text-xs text-slate-500 mb-4">10 PDF reports/mo &mdash; about $1.00 each</p>
                     <a href="/Auth/Register" class="block text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm py-3 rounded-xl transition mb-7">
                         Get Started
                     </a>
                     <ul class="space-y-3 text-sm text-slate-300">
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>10 searches per month</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Real NOAA risk scoring</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Interactive map view</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Claim window countdown</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Owner enrichment</span></li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Storm alerts</span></li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">CSV export</span></li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>10 PDF hail reports every month</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Full access to Storm Explorer &amp; Neighborhood Scan</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Storm alerts for watched areas</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>CSV export</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Need more? Top up 3 reports for $5.99 anytime</li>
                     </ul>
                 </div>
 
@@ -259,45 +277,40 @@
                 <div class="pricing-popular card-hover bg-slate-800/80 border-2 border-brand/50 rounded-2xl p-7 mt-4">
                     <p class="text-sm font-semibold text-brand mb-1">Pro</p>
                     <div class="flex items-end gap-1 mb-1">
-                        <span class="text-4xl font-black text-white">$99</span>
+                        <span class="text-4xl font-black text-white">$29.99</span>
                         <span class="text-slate-500 mb-1.5">/month</span>
                     </div>
-                    <p class="text-xs text-slate-500 mb-4">+ $15 per 100 extra enrichment credits</p>
+                    <p class="text-xs text-slate-500 mb-4">75 PDF reports/mo &mdash; about $0.40 each, the best rate on the platform</p>
                     <a href="/Auth/Register" class="block text-center bg-brand hover:bg-orange-400 text-white font-bold text-sm py-3 rounded-xl transition mb-7 shadow-lg shadow-orange-500/20">
                         Start Free Trial
                     </a>
                     <ul class="space-y-3 text-sm text-slate-300">
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Unlimited searches</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>100 enrichment credits/mo</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Storm alerts (unlimited areas)</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Claim window countdown</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>CSV export</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Pipeline status tracking</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-xmark text-slate-600 mt-0.5 shrink-0"></i><span class="text-slate-500">Team seats</span></li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>75 PDF hail reports every month</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Everything in Starter</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Lowest per-report cost of any plan</li>
+                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Built for teams running high lead volume</li>
                     </ul>
                 </div>
 
-                <!-- Agency -->
-                <div class="card-hover bg-slate-800/60 border border-slate-700/60 rounded-2xl p-7">
-                    <p class="text-sm font-semibold text-slate-400 mb-1">Agency</p>
-                    <div class="flex items-end gap-1 mb-1">
-                        <span class="text-4xl font-black text-white">$249</span>
-                        <span class="text-slate-500 mb-1.5">/month</span>
+            </div>
+
+            <!-- Pay-as-you-go: no subscription -->
+            <div class="mt-10 bg-slate-800/40 border border-slate-700/60 rounded-2xl p-6 sm:p-8 text-center">
+                <p class="text-sm font-semibold text-white mb-1">Don't want a subscription?</p>
+                <p class="text-slate-400 text-sm mb-5">Buy hail reports in bulk, one time, no recurring commitment.</p>
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-10">
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-2xl font-black text-white">$39.99</span>
+                        <span class="text-slate-400 text-sm">for 50 reports <span class="text-slate-500">(~$0.80 each)</span></span>
                     </div>
-                    <p class="text-xs text-slate-500 mb-4">+ $25/mo per additional seat</p>
-                    <a href="/Auth/Login" class="block text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm py-3 rounded-xl transition mb-7">
-                        Contact Us
-                    </a>
-                    <ul class="space-y-3 text-sm text-slate-300">
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Everything in Pro</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>5 team seats included</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>500 enrichment credits/mo</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Lead assignment to reps</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>CSV import (your own lists)</li>
-                        <li class="flex gap-2.5"><i class="fa-solid fa-check text-green-400 mt-0.5 shrink-0"></i>Priority support</li>
-                    </ul>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-2xl font-black text-white">$59.99</span>
+                        <span class="text-slate-400 text-sm">for 100 reports <span class="text-slate-500">(~$0.60 each)</span></span>
+                    </div>
                 </div>
-
+                <a href="/Auth/Register" class="inline-block mt-6 text-brand hover:text-orange-400 text-sm font-semibold transition">
+                    Get started &rarr;
+                </a>
             </div>
         </div>
     </section>

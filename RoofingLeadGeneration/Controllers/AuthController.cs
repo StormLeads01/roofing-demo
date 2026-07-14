@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using RoofingLeadGeneration.Data;
 using RoofingLeadGeneration.Data.Models;
 using RoofingLeadGeneration.Filters;
+using RoofingLeadGeneration.Services;
 using System.Security.Claims;
 
 namespace RoofingLeadGeneration.Controllers
@@ -17,12 +18,19 @@ namespace RoofingLeadGeneration.Controllers
         private readonly AppDbContext        _db;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<AuthController> _logger;
+        private readonly ReportCreditService _reportCredits;
+        private readonly EmailService         _email;
+        private readonly string               _adminEmail;
 
-        public AuthController(AppDbContext db, IWebHostEnvironment env, ILogger<AuthController> logger)
+        public AuthController(AppDbContext db, IWebHostEnvironment env, ILogger<AuthController> logger,
+            ReportCreditService reportCredits, EmailService email, IConfiguration config)
         {
             _db     = db;
             _env    = env;
             _logger = logger;
+            _reportCredits = reportCredits;
+            _email      = email;
+            _adminEmail = config["AdminEmail"] ?? "";
         }
 
         // ── GET /Auth/Login ─────────────────────────────────────────
@@ -98,12 +106,21 @@ namespace RoofingLeadGeneration.Controllers
         [HttpPost("Register")]
         public async Task<IActionResult> RegisterPost(
             string companyName, string name, string email, string password, string confirmPassword,
-            string? returnUrl = "/")
+            string? plan = "trial", string? returnUrl = "/")
         {
+            // Account type is a required choice on the signup form (trial /
+            // starter / pro — see Views/Auth/Register.cshtml). Since Stripe
+            // checkout doesn't exist yet, every choice still starts the same
+            // 14-day/1-report trial below; starter/pro just records intent
+            // and emails the admin to follow up on billing manually.
+            var validPlans = new[] { "trial", "starter", "pro" };
+            if (plan == null || !validPlans.Contains(plan)) plan = "trial";
+
             ViewData["ReturnUrl"]   = returnUrl ?? "/";
             ViewData["CompanyName"] = companyName;
             ViewData["Name"]        = name;
             ViewData["Email"]       = email;
+            ViewData["Plan"]        = plan;
 
             if (string.IsNullOrWhiteSpace(companyName) || string.IsNullOrWhiteSpace(name) ||
                 string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
@@ -133,21 +150,26 @@ namespace RoofingLeadGeneration.Controllers
                 return View("Register");
             }
 
-            // Create the org first — new signups get a 7-day full-Pro trial
-            // with a capped enrichment allowance.
-            var trialEndsAt = DateTime.UtcNow.AddDays(7);
+            // Create the org first — new signups get a 14-day free trial with
+            // 1 PDF hail report regardless of which account type they picked
+            // (see docs/pricing-refresh-punchlist.md — no Stripe checkout
+            // exists yet, so starter/pro can't actually be charged at signup;
+            // Plan just records their choice for a manual billing follow-up).
+            // Enrichment is feature-flagged off platform-wide, so the capped
+            // enrichment grant below is inert today but kept so the ledger
+            // is seeded if enrichment is ever re-enabled.
+            var trialEndsAt = DateTime.UtcNow.AddDays(14);
             var org = new Data.Models.Org
             {
                 Name        = companyName.Trim(),
                 CompanyName = companyName.Trim(),
-                Plan        = "pro",
+                Plan        = plan,
                 TrialEndsAt = trialEndsAt,
                 CreatedAt   = DateTime.UtcNow
             };
             _db.Orgs.Add(org);
             await _db.SaveChangesAsync(); // get org.Id
 
-            // Cap enrichments during the trial (full Pro otherwise)
             _db.OrgCredits.Add(new Data.Models.OrgCredit
             {
                 OrgId       = org.Id,
@@ -176,6 +198,29 @@ namespace RoofingLeadGeneration.Controllers
 
             org.OwnerId = newUser.Id;
             await _db.SaveChangesAsync();
+
+            await _reportCredits.GrantTrialAsync(org.Id, newUser.Id);
+
+            if (plan is "starter" or "pro" && !string.IsNullOrWhiteSpace(_adminEmail))
+            {
+                // Best-effort — no Stripe checkout yet, so this is the only
+                // signal that a new signup wants to pay. Never block signup
+                // on it (EmailService already no-ops quietly if SMTP isn't
+                // configured; the try/catch is just extra insurance).
+                try
+                {
+                    await _email.SendAsync(_adminEmail,
+                        $"New {plan} signup — {org.Name}",
+                        $"<p><b>{System.Net.WebUtility.HtmlEncode(name.Trim())}</b> ({System.Net.WebUtility.HtmlEncode(email.Trim())}) " +
+                        $"signed up for <b>{plan}</b> at <b>{System.Net.WebUtility.HtmlEncode(org.Name)}</b>.</p>" +
+                        $"<p>They're on the standard 14-day trial for now — follow up to set up {plan} billing, " +
+                        $"then grant credits and set the plan via /Admin.</p>");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send signup-intent email for org={OrgId} plan={Plan}", org.Id, plan);
+                }
+            }
 
             await SignInUserAsync(newUser.Id, "password", normalizedEmail, newUser.Email!, newUser.DisplayName!);
             _logger.LogInformation("New signup: org={OrgId} ({OrgName}) user={UserId} email={Email}",
@@ -268,6 +313,8 @@ namespace RoofingLeadGeneration.Controllers
                     user.OrgRole = "owner";
                     await _db.SaveChangesAsync();
 
+                    await _reportCredits.GrantTrialAsync(org.Id, user.Id);
+
                     // Migrate orphaned data to this org
                     await _db.Leads.Where(l => l.UserId == user.Id && l.OrgId == null)
                         .ExecuteUpdateAsync(s => s.SetProperty(l => l.OrgId, org.Id));
@@ -305,6 +352,8 @@ namespace RoofingLeadGeneration.Controllers
             // Set the owner back-reference
             newOrg.OwnerId = newUser.Id;
             await _db.SaveChangesAsync();
+
+            await _reportCredits.GrantTrialAsync(newOrg.Id, newUser.Id);
 
             return newUser.Id;
         }

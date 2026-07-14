@@ -2,6 +2,10 @@
     Layout = null;
     var isAuthed = User.Identity?.IsAuthenticated == true;
 }
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@{
+    var enrichmentEnabled = Configuration.GetValue<bool>("FeatureFlags:EnrichmentEnabled");
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -89,7 +93,10 @@
             <a href="#storm-explorer"   class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Storm Explorer</a>
             <a href="#risk-scores"      class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Risk Scores &amp; Hail</a>
             <a href="#saved-leads"      class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Saved Leads</a>
-            <a href="#enrichment"       class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Owner Enrichment</a>
+            @if (enrichmentEnabled)
+            {
+                <a href="#enrichment"       class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Owner Enrichment</a>
+            }
             <a href="#alerts"           class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Storm Alerts</a>
             <a href="#data-sources"     class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Data Sources</a>
             <a href="#faq"              class="block px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">FAQ</a>
@@ -124,8 +131,8 @@
                     </div>
                     <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5">
                         <div class="text-brand font-black text-xl mb-2">3</div>
-                        <h3 class="font-bold text-white mb-1">Save &amp; contact</h3>
-                        <p class="text-slate-400 text-sm">Save your best leads, enrich them with owner contact info, then export or start outreach.</p>
+                        <h3 class="font-bold text-white mb-1">Save &amp; download</h3>
+                        <p class="text-slate-400 text-sm">Save your best leads, then download a branded PDF hail report for each one to bring to the door.</p>
                     </div>
                 </div>
             </div>
@@ -327,30 +334,33 @@
             </div>
         </section>
 
-        <!-- ── Enrichment ──────────────────────────────────────────────── -->
-        <section id="enrichment" class="doc-section">
-            <div class="flex items-center gap-3 mb-6">
-                <div class="w-9 h-9 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0">
-                    <i class="fa-solid fa-bolt text-brand text-sm"></i>
+        @if (enrichmentEnabled)
+        {
+            <!-- ── Enrichment ──────────────────────────────────────────────── -->
+            <section id="enrichment" class="doc-section">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-9 h-9 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-bolt text-brand text-sm"></i>
+                    </div>
+                    <h2 class="text-2xl font-black">Owner Enrichment</h2>
                 </div>
-                <h2 class="text-2xl font-black">Owner Enrichment</h2>
-            </div>
-            <div class="space-y-4 text-slate-300 leading-relaxed">
-                <p>Enrichment pulls the property owner's name, phone number, and email address from public parcel records and data providers — so you can start outreach without manual skip tracing.</p>
+                <div class="space-y-4 text-slate-300 leading-relaxed">
+                    <p>Enrichment pulls the property owner's name, phone number, and email address from public parcel records and data providers — so you can start outreach without manual skip tracing.</p>
 
-                <p>To enrich a lead, click the <i class="fa-solid fa-bolt text-brand text-xs"></i> lightning bolt icon on any row in Saved Leads. The enrichment runs in the background and fills in the owner's contact details within a few seconds.</p>
+                    <p>To enrich a lead, click the <i class="fa-solid fa-bolt text-brand text-xs"></i> lightning bolt icon on any row in Saved Leads. The enrichment runs in the background and fills in the owner's contact details within a few seconds.</p>
 
-                <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5 mt-4">
-                    <p class="text-white font-semibold mb-2"><i class="fa-solid fa-circle-info text-sky-400 mr-2"></i>Data providers used</p>
-                    <ul class="text-slate-400 text-sm space-y-1">
-                        <li><span class="text-slate-200">Regrid</span> — public parcel data for owner name and property details (free tier: 25/day)</li>
-                        <li><span class="text-slate-200">Whitepages Pro</span> — phone and email lookup (~$0.22/record)</li>
-                    </ul>
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5 mt-4">
+                        <p class="text-white font-semibold mb-2"><i class="fa-solid fa-circle-info text-sky-400 mr-2"></i>Data providers used</p>
+                        <ul class="text-slate-400 text-sm space-y-1">
+                            <li><span class="text-slate-200">Regrid</span> — public parcel data for owner name and property details (free tier: 25/day)</li>
+                            <li><span class="text-slate-200">Whitepages Pro</span> — phone and email lookup (~$0.22/record)</li>
+                        </ul>
+                    </div>
+
+                    <p class="text-slate-500 text-sm mt-2"><i class="fa-solid fa-shield-halved mr-1"></i>Enrichment data comes from public records. Availability varies by county and state.</p>
                 </div>
-
-                <p class="text-slate-500 text-sm mt-2"><i class="fa-solid fa-shield-halved mr-1"></i>Enrichment data comes from public records. Availability varies by county and state.</p>
-            </div>
-        </section>
+            </section>
+        }
 
         <!-- ── Storm Alerts ────────────────────────────────────────────── -->
         <section id="alerts" class="doc-section">
@@ -452,7 +462,7 @@
                         <i class="fa-solid fa-address-card text-pink-400 mt-0.5 w-4 shrink-0"></i>
                         <div>
                             <p class="font-semibold text-white">Whitepages Pro <span class="text-xs text-slate-500 font-normal ml-1">— Phone &amp; email lookup</span></p>
-                            <p class="text-slate-400 text-sm mt-1">Appends phone numbers and email addresses to enriched leads. Pay-per-record (~$0.22/lookup). Only called when you click the enrich button on a lead.</p>
+                            <p class="text-slate-400 text-sm mt-1">Appends phone numbers and email addresses to enriched leads. Pay-per-record (~$0.22/lookup). @(enrichmentEnabled ? "Only called when you click the enrich button on a lead." : "Currently disabled — not called anywhere in the app.")</p>
                         </div>
                     </div>
                 </div>
@@ -508,6 +518,15 @@
                         ("Can I export my leads to my CRM?",
                          "Yes. Click Export CSV on the Saved Leads page to download your full lead list. The CSV includes address, owner name, phone, email, risk level, hail size, year built, status, and notes — compatible with any CRM or dialer that accepts CSV import."),
 
+                        ("What does StormLead Pro cost?",
+                         "Every account starts with a 14-day free trial that includes 1 PDF report. After that, Starter is $9.99/mo for 10 reports and Pro is $29.99/mo for 75 reports — Pro works out to about $0.40 per report, the best rate on the platform. If you'd rather not subscribe, one-time report packs are also available: 50 reports for $39.99 or 100 reports for $59.99, no recurring commitment."),
+
+                        ("What happens when I run out of reports on my plan?",
+                         "You can buy a quick top-up — 3 additional reports for $5.99 — or upgrade to Pro for a lower cost per report. Top-ups are available any time your monthly allotment runs out."),
+
+                        ("Do I need a subscription to buy hail reports?",
+                         "No. The 50-report ($39.99) and 100-report ($59.99) packs are one-time purchases with no subscription required — a good fit if you only need reports occasionally rather than every month."),
+
                         ("How does owner enrichment work?",
                          "When you click the enrich button on a lead, StormLead Pro queries Regrid for the public parcel record (owner name, year built, property type) and then Whitepages Pro for a phone number and email address. Results appear within a few seconds. Enrichment quality depends on public record availability in that county."),
 
@@ -525,7 +544,7 @@
                     };
                 }
 
-                @foreach (var (q, a) in faqs)
+                @foreach (var (q, a) in faqs.Where(f => enrichmentEnabled || f.Item1 != "How does owner enrichment work?"))
                 {
                     <div class="faq-item border border-slate-700/60 rounded-xl overflow-hidden">
                         <button onclick="toggleFaq(this)"
