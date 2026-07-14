@@ -126,6 +126,11 @@ function initPropertyMap() {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri', maxZoom: 20
     }).addTo(map);
+    // World_Imagery has no place names — layer Esri's Boundaries_and_Places
+    // reference tiles (transparent, city/place labels only) on top.
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Labels &copy; Esri', maxZoom: 20
+    }).addTo(map);
     L.marker([lat, lng]).addTo(map);
 }
 

@@ -154,10 +154,17 @@
 
         leafletMap = L.map('map', { center: [lat, lng], zoom: 15, zoomControl: true });
 
-        const tileSatellite = L.tileLayer(
+        const tileSatelliteImg = L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
         );
+        // World_Imagery has no place names — layer Esri's Boundaries_and_Places
+        // reference tiles (transparent, city/place labels only) on top.
+        const tileSatelliteLabels = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Labels &copy; Esri', maxZoom: 19 }
+        );
+        const tileSatellite = L.layerGroup([tileSatelliteImg, tileSatelliteLabels]);
         const tileStreet = L.tileLayer(
             'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
             { attribution: '&copy; CARTO', maxZoom: 19 }

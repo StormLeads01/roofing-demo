@@ -377,6 +377,17 @@
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
         );
+        // World_Imagery is unlabeled satellite/aerial imagery — Esri's
+        // Boundaries_and_Places reference layer is a transparent overlay of
+        // city/place names + borders meant to sit on top of it. Grouped with
+        // tileSat so both add/remove together as one "Satellite" entry in
+        // the layer control (this is Esri's standard hybrid-satellite combo).
+        var tileSatLabels = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Labels &copy; Esri', maxZoom: 19 }
+        );
+        var tileSatGroup = L.layerGroup([tileSat, tileSatLabels]);
+
         var mtKey = window.MAPTILER_KEY || '';
         var tileStreet = mtKey
             ? L.tileLayer(
@@ -389,7 +400,7 @@
               );
         tileStreet.addTo(seMap);
         L.control.layers(
-            { 'Dark Street': tileStreet, 'Satellite': tileSat },
+            { 'Dark Street': tileStreet, 'Satellite': tileSatGroup },
             {},
             { position: 'topright' }
         ).addTo(seMap);
