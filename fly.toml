@@ -10,7 +10,7 @@ primary_region = 'dfw'
 
 [[mounts]]
   source = 'roof_guard_data'
-  destination = '/app/data'
+  destination = '/app/App_Data'
 
 [http_service]
   internal_port = 8080
