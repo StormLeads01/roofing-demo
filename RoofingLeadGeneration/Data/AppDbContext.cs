@@ -101,6 +101,8 @@ namespace RoofingLeadGeneration.Data
                 e.Property(u => u.OrgId).HasColumnName("org_id");
                 e.Property(u => u.OrgRole).HasColumnName("org_role").HasDefaultValue("owner");
                 e.Property(u => u.PasswordHash).HasColumnName("password_hash");
+                e.Property(u => u.PasswordResetToken).HasColumnName("password_reset_token");
+                e.Property(u => u.PasswordResetExpiresAt).HasColumnName("password_reset_expires_at");
                 e.Property(u => u.Phone).HasColumnName("phone");
                 e.Property(u => u.NotificationEmail).HasColumnName("notification_email");
 

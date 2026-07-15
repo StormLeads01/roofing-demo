@@ -44,6 +44,7 @@ namespace RoofingLeadGeneration.Controllers
             ViewData["GoogleEnabled"]    = !string.IsNullOrWhiteSpace(cfg?["Auth:Google:ClientId"]);
             ViewData["MicrosoftEnabled"] = !string.IsNullOrWhiteSpace(cfg?["Auth:Microsoft:ClientId"]);
             ViewData["PasswordEnabled"]  = true;
+            ViewData["LoginSuccess"]     = TempData["LoginSuccess"] as string;
             return View();
         }
 
@@ -91,6 +92,125 @@ namespace RoofingLeadGeneration.Controllers
             ViewData["LoginError"]       = "Invalid email or password.";
             return View("Login");
         }
+
+        // ── GET /Auth/ForgotPassword ──────────────────────────────────
+        [HttpGet("ForgotPassword")]
+        public IActionResult ForgotPassword()
+        {
+            if (User.Identity?.IsAuthenticated == true) return Redirect("/");
+            return View();
+        }
+
+        // ── POST /Auth/ForgotPassword ─────────────────────────────────
+        // Always shows the same "check your email" message whether or not
+        // the account exists — otherwise this endpoint becomes a way to
+        // check which emails have an account (user enumeration).
+        [HttpPost("ForgotPassword")]
+        public async Task<IActionResult> ForgotPasswordPost(string email)
+        {
+            const string genericMessage = "If an account exists for that email, we've sent a link to reset your password.";
+
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                ViewData["FormError"] = "Enter your email address.";
+                return View("ForgotPassword");
+            }
+
+            var normalizedEmail = email.Trim().ToLowerInvariant();
+            var user = await _db.Users.FirstOrDefaultAsync(
+                u => u.Provider == "password" && u.ProviderId == normalizedEmail);
+
+            if (user != null)
+            {
+                // 32 random bytes, URL-safe — long enough that guessing isn't
+                // practical, short-lived (1 hour) so an intercepted-but-unused
+                // link doesn't stay valid indefinitely.
+                var tokenBytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+                var token = Convert.ToBase64String(tokenBytes)
+                    .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+                user.PasswordResetToken     = token;
+                user.PasswordResetExpiresAt = DateTime.UtcNow.AddHours(1);
+                await _db.SaveChangesAsync();
+
+                var resetUrl = $"{Request.Scheme}://{Request.Host}/Auth/ResetPassword?token={Uri.EscapeDataString(token)}";
+                try
+                {
+                    await _email.SendAsync(user.Email ?? email, "Reset your StormLead Pro password",
+                        $"<p>Someone (hopefully you) requested a password reset for your StormLead Pro account.</p>" +
+                        $"<p><a href=\"{resetUrl}\">Click here to set a new password</a> — this link expires in 1 hour.</p>" +
+                        $"<p>If you didn't request this, you can safely ignore this email.</p>");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send password-reset email for user={UserId}", user.Id);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Password reset requested for unknown email={Email}", normalizedEmail);
+            }
+
+            ViewData["FormSuccess"] = genericMessage;
+            return View("ForgotPassword");
+        }
+
+        // ── GET /Auth/ResetPassword?token=... ─────────────────────────
+        [HttpGet("ResetPassword")]
+        public async Task<IActionResult> ResetPassword(string? token)
+        {
+            if (string.IsNullOrWhiteSpace(token) || !await IsValidResetTokenAsync(token))
+            {
+                ViewData["TokenInvalid"] = true;
+                return View();
+            }
+
+            ViewData["Token"] = token;
+            return View();
+        }
+
+        // ── POST /Auth/ResetPassword ───────────────────────────────────
+        [HttpPost("ResetPassword")]
+        public async Task<IActionResult> ResetPasswordPost(string token, string password, string confirmPassword)
+        {
+            var user = string.IsNullOrWhiteSpace(token) ? null : await _db.Users.FirstOrDefaultAsync(
+                u => u.PasswordResetToken == token &&
+                     u.PasswordResetExpiresAt != null && u.PasswordResetExpiresAt > DateTime.UtcNow);
+
+            if (user == null)
+            {
+                ViewData["TokenInvalid"] = true;
+                return View("ResetPassword");
+            }
+
+            ViewData["Token"] = token;
+
+            if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+            {
+                ViewData["FormError"] = "Password must be at least 8 characters.";
+                return View("ResetPassword");
+            }
+            if (password != confirmPassword)
+            {
+                ViewData["FormError"] = "Passwords don't match.";
+                return View("ResetPassword");
+            }
+
+            user.PasswordHash           = new PasswordHasher<Data.Models.User>().HashPassword(user, password);
+            user.PasswordResetToken     = null;
+            user.PasswordResetExpiresAt = null;
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Password reset completed for user={UserId}", user.Id);
+
+            TempData["LoginSuccess"] = "Password updated — sign in with your new password.";
+            return RedirectToAction(nameof(Login));
+        }
+
+        private async Task<bool> IsValidResetTokenAsync(string token) =>
+            await _db.Users.AnyAsync(u =>
+                u.PasswordResetToken == token &&
+                u.PasswordResetExpiresAt != null && u.PasswordResetExpiresAt > DateTime.UtcNow);
 
         // ── GET /Auth/Register ───────────────────────────────────────
         [HttpGet("Register")]

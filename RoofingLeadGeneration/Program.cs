@@ -195,6 +195,8 @@ using (var scope = app.Services.CreateScope())
     AddColumnIfMissing("users", "org_id",              "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
     AddColumnIfMissing("users", "org_role",            "TEXT NOT NULL DEFAULT 'owner'");
     AddColumnIfMissing("users", "password_hash",       "TEXT");
+    AddColumnIfMissing("users", "password_reset_token",      "TEXT");
+    AddColumnIfMissing("users", "password_reset_expires_at", "TEXT");
     AddColumnIfMissing("users", "phone",               "TEXT");
     AddColumnIfMissing("users", "notification_email",  "TEXT");
     AddColumnIfMissing("leads", "year_built",          "INTEGER");

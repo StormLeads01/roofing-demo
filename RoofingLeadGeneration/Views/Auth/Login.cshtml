@@ -5,6 +5,7 @@
     var microsoftEnabled = ViewData["MicrosoftEnabled"] is true;
     var passwordEnabled  = ViewData["PasswordEnabled"]  is true;
     var loginError       = ViewData["LoginError"]       as string;
+    var loginSuccess     = ViewData["LoginSuccess"]     as string;
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -79,6 +80,12 @@
                         <div class="flex-1 h-px bg-slate-700"></div>
                     </div>
                 }
+                @if (loginSuccess != null)
+                {
+                    <div class="bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3 text-green-400 text-sm text-center">
+                        <i class="fa-solid fa-circle-check mr-1"></i>@loginSuccess
+                    </div>
+                }
                 @if (loginError != null)
                 {
                     <div class="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
@@ -90,6 +97,9 @@
                            class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required />
                     <input type="password" name="password" placeholder="Password"
                            class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" required />
+                    <div class="text-right -mt-1">
+                        <a href="/Auth/ForgotPassword" class="text-slate-500 hover:text-orange-400 text-xs transition">Forgot password?</a>
+                    </div>
                     <button type="submit"
                             class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl px-4 py-3 text-sm transition">
                         Sign In

@@ -9,6 +9,10 @@ namespace RoofingLeadGeneration.Data.Models
         public string? DisplayName { get; set; }
         /// <summary>ASP.NET Core Identity password hash — only set for Provider == "password" accounts created via signup.</summary>
         public string? PasswordHash { get; set; }
+        /// <summary>Single-use forgot-password token — null unless a reset is currently in flight. Cleared on successful reset or use.</summary>
+        public string?   PasswordResetToken     { get; set; }
+        /// <summary>UTC expiry for PasswordResetToken — reset links are valid for 1 hour (see AuthController.ForgotPassword).</summary>
+        public DateTime? PasswordResetExpiresAt { get; set; }
         public DateTime CreatedAt  { get; set; } = DateTime.UtcNow;
         public bool    IsAdmin     { get; set; }
         public long?   OrgId      { get; set; }
