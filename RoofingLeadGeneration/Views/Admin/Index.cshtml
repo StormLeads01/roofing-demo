@@ -348,8 +348,8 @@
                     <p id="accessRoleStatus" class="text-xs text-slate-400 mb-2"></p>
                     <form id="accessRoleForm" method="post" class="flex items-center gap-1.5">
                         @Html.AntiForgeryToken()
-                        <button type="submit" name="role" value="admin" class="px-2.5 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs">Make admin</button>
-                        <button type="submit" name="role" value="user" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Remove admin</button>
+                        <button type="submit" name="role" value="admin" data-role-btn="admin" class="px-2.5 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs">Make admin</button>
+                        <button type="submit" name="role" value="user" data-role-btn="user" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Remove admin</button>
                     </form>
                 </div>
             }
@@ -488,13 +488,23 @@
         var roleForm = document.getElementById('accessRoleForm');
         if (roleForm) {
             roleForm.action = '/Admin/Users/' + id + '/Role';
-            var roleStatusEl = document.getElementById('accessRoleStatus');
-            var isSuper = role === 'super_admin';
-            roleStatusEl.textContent = isSuper
-                ? 'Currently: super admin (managed via login, not here)'
-                : 'Currently: ' + (role === 'admin' ? 'admin' : 'regular user');
-            var roleButtons = roleForm.querySelectorAll('button');
-            roleButtons.forEach(function (b) { b.disabled = isSuper; b.classList.toggle('opacity-40', isSuper); });
+            var roleStatusEl  = document.getElementById('accessRoleStatus');
+            var makeAdminBtn  = roleForm.querySelector('[data-role-btn="admin"]');
+            var removeAdminBtn = roleForm.querySelector('[data-role-btn="user"]');
+
+            if (role === 'super_admin') {
+                roleStatusEl.textContent = 'Super admin — managed via login, not here.';
+                makeAdminBtn.classList.add('hidden');
+                removeAdminBtn.classList.add('hidden');
+            } else if (role === 'admin') {
+                roleStatusEl.textContent = 'Currently: admin';
+                makeAdminBtn.classList.add('hidden');
+                removeAdminBtn.classList.remove('hidden');
+            } else {
+                roleStatusEl.textContent = 'Currently: regular user';
+                makeAdminBtn.classList.remove('hidden');
+                removeAdminBtn.classList.add('hidden');
+            }
         }
 
         document.getElementById('accessModal').classList.remove('hidden');

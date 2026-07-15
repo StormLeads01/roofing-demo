@@ -62,18 +62,6 @@ namespace RoofingLeadGeneration.Controllers
                 password == adminPassword)
             {
                 var userId = await FindOrCreateUserAsync("password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
-
-                // Always re-bootstrap this account to super_admin on every login via
-                // the break-glass credential, so it can never be locked out of admin
-                // access even if roles get reassigned or the database is restored
-                // from an older backup.
-                var breakGlassUser = await _db.Users.FindAsync(userId);
-                if (breakGlassUser != null && breakGlassUser.Role != "super_admin")
-                {
-                    breakGlassUser.Role = "super_admin";
-                    await _db.SaveChangesAsync();
-                }
-
                 await SignInUserAsync(userId, "password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
                 return LocalRedirect(returnUrl ?? "/");
             }
@@ -493,7 +481,31 @@ namespace RoofingLeadGeneration.Controllers
         private async Task SignInUserAsync(
             long userId, string provider, string providerId, string email, string name)
         {
-            var user       = await _db.Users.FindAsync(userId);
+            var user = await _db.Users.FindAsync(userId);
+
+            // Whoever's email matches the configured platform admin (appsettings
+            // "AdminEmail") is always treated as super_admin, no matter which
+            // login path got them here — break-glass password, their own signup/
+            // reset password, or OAuth. Without this, resetting your password via
+            // /Auth/ResetPassword and logging in with it instead of the Fly-secret
+            // break-glass credential would silently leave Role at "user".
+            // Checked against Email, ProviderId, and the raw login email — trimmed
+            // and case-insensitive on all three — since stored casing/whitespace
+            // on the free-form Email column isn't guaranteed consistent across
+            // every account-creation path in this codebase (signup, dev-seed,
+            // admin-bypass, OAuth).
+            var adminEmailNorm = (_adminEmail ?? "").Trim();
+            var isConfiguredAdmin = user != null && !string.IsNullOrWhiteSpace(adminEmailNorm) && (
+                string.Equals((user.Email ?? "").Trim(),      adminEmailNorm, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals((user.ProviderId ?? "").Trim(), adminEmailNorm, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(email.Trim(),                   adminEmailNorm, StringComparison.OrdinalIgnoreCase));
+
+            if (isConfiguredAdmin && user!.Role != "super_admin")
+            {
+                user.Role = "super_admin";
+                await _db.SaveChangesAsync();
+            }
+
             var orgId      = user?.OrgId?.ToString()  ?? "";
             var orgRole    = user?.OrgRole             ?? "owner";
             var adminRole  = user?.Role                ?? "user";
