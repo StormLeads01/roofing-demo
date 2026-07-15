@@ -98,6 +98,7 @@ namespace RoofingLeadGeneration.Data
                 e.Property(u => u.CreatedAt).HasColumnName("created_at")
                  .HasDefaultValueSql("datetime('now')");
                 e.Property(u => u.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
+                e.Property(u => u.Role).HasColumnName("role").HasDefaultValue("user");
                 e.Property(u => u.OrgId).HasColumnName("org_id");
                 e.Property(u => u.OrgRole).HasColumnName("org_role").HasDefaultValue("owner");
                 e.Property(u => u.PasswordHash).HasColumnName("password_hash");

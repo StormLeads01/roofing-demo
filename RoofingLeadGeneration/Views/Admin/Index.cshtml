@@ -5,6 +5,7 @@
     var totalLeads  = (int)(ViewBag.TotalLeads  ?? 0);
     var enrichmentEnabled    = ViewBag.EnrichmentEnabled is true;
     var reportCreditsEnabled = ViewBag.ReportCreditsEnabled is true;
+    var isSuperAdmin         = ViewBag.IsSuperAdmin is true;
     var totalEnrich  = (int)(ViewBag.TotalEnrich ?? 0);
     var enrichMonth  = (int)(ViewBag.EnrichMonth ?? 0);
     var leadsMonth   = (int)(ViewBag.LeadsMonth  ?? 0);
@@ -134,11 +135,21 @@
 
     <!-- Users table -->
     <div class="rounded-2xl border border-slate-700/60 overflow-hidden shadow-xl bg-slate-800/40">
-        <div class="px-5 py-4 border-b border-slate-700/60">
+        <div class="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between">
             <h2 class="text-sm font-bold text-white">
                 <i class="fa-solid fa-users text-brand mr-2"></i>All Users
                 <span class="ml-2 text-xs font-normal text-slate-400">(@users.Count total)</span>
             </h2>
+            @{
+                var emailableCount = users.Count(u => !string.IsNullOrEmpty(u.Email));
+            }
+            @if (emailableCount > 0)
+            {
+                <button type="button" onclick="openBroadcastEmailModal(@emailableCount)"
+                        class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold">
+                    <i class="fa-solid fa-bullhorn mr-1.5 text-brand"></i>Email All
+                </button>
+            }
         </div>
         <div class="overflow-x-auto">
             <table id="usersTable" class="w-full border-collapse">
@@ -163,6 +174,7 @@
                             var joined = u.CreatedAt.ToString("yyyy-MM-dd");
                             var lastLead = u.LastLeadAt.HasValue ? u.LastLeadAt.Value.ToString("yyyy-MM-dd") : "—";
                             var planLabel = string.IsNullOrEmpty(u.Plan) ? "—" : u.Plan;
+                            var trialEndsIso = u.TrialEndsAt.HasValue ? u.TrialEndsAt.Value.ToString("o") : "";
                             string trialText;
                             string trialCls;
                             if (u.OrgId == null)
@@ -188,8 +200,30 @@
                             }
                             <tr>
                                 <td>
-                                    <p class="font-semibold text-white text-xs">@(string.IsNullOrEmpty(u.DisplayName) ? "—" : u.DisplayName)</p>
-                                    <p class="text-slate-500 text-xs">@u.Email</p>
+                                    <div class="flex items-start gap-2">
+                                        <div>
+                                            <p class="font-semibold text-white text-xs">
+                                                @(string.IsNullOrEmpty(u.DisplayName) ? "—" : u.DisplayName)
+                                                @if (u.Role == "super_admin")
+                                                {
+                                                    <span class="ml-1 px-1.5 py-0.5 rounded bg-brand/20 text-brand text-[10px] font-bold uppercase tracking-wide">Super Admin</span>
+                                                }
+                                                else if (u.Role == "admin")
+                                                {
+                                                    <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-bold uppercase tracking-wide">Admin</span>
+                                                }
+                                            </p>
+                                            <p class="text-slate-500 text-xs">@u.Email</p>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(u.Email))
+                                        {
+                                            <button type="button" onclick="openEmailModal(this)"
+                                                    data-id="@u.Id" data-email="@u.Email" data-name="@u.DisplayName"
+                                                    class="mt-0.5 text-slate-500 hover:text-brand transition-colors shrink-0" title="Email this user">
+                                                <i class="fa-solid fa-envelope text-xs"></i>
+                                            </button>
+                                        }
+                                    </div>
                                 </td>
                                 <td class="font-semibold text-white">@u.LeadCount</td>
                                 @if (enrichmentEnabled) { <td class="font-semibold text-white">@u.EnrichCount</td> }
@@ -237,27 +271,12 @@
                                 <td class="whitespace-nowrap">
                                     @if (u.OrgId != null)
                                     {
-                                        <div class="flex flex-col gap-1.5">
-                                            <form method="post" action="/Admin/Users/@u.Id/Plan" class="flex items-center gap-1">
-                                                @Html.AntiForgeryToken()
-                                                <select name="plan" class="bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1">
-                                                    <option value="trial" selected="@(u.Plan == "trial" ? "selected" : null)">trial (14-day, 1 report)</option>
-                                                    <option value="starter" selected="@(u.Plan == "starter" ? "selected" : null)">starter ($9.99, 10/mo)</option>
-                                                    <option value="pro" selected="@(u.Plan == "pro" ? "selected" : null)">pro ($29.99, 75/mo)</option>
-                                                    <option value="free" selected="@(u.Plan == "free" ? "selected" : null)">free (legacy)</option>
-                                                    <option value="agency" selected="@(u.Plan == "agency" ? "selected" : null)">agency (legacy)</option>
-                                                </select>
-                                                <button type="submit" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Set plan</button>
-                                            </form>
-                                            <form method="post" action="/Admin/Users/@u.Id/Trial" class="flex items-center gap-1">
-                                                @Html.AntiForgeryToken()
-                                                <input type="number" name="days" value="14" min="0" class="w-14 bg-slate-900 border border-slate-600 rounded text-xs text-white px-1.5 py-1" />
-                                                <button type="submit" name="op" value="set" class="px-2 py-1 rounded bg-brand hover:bg-brand-dark text-white text-xs">Set</button>
-                                                <button type="submit" name="op" value="extend" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">+Extend</button>
-                                                <button type="submit" name="op" value="unlimited" class="px-2 py-1 rounded bg-green-600/80 hover:bg-green-600 text-white text-xs" title="Never gated">&#8734;</button>
-                                                <button type="submit" name="op" value="expire" class="px-2 py-1 rounded bg-red-600/80 hover:bg-red-600 text-white text-xs">Expire</button>
-                                            </form>
-                                        </div>
+                                        <button type="button" onclick="openAccessModal(this)"
+                                                data-id="@u.Id" data-plan="@u.Plan"
+                                                data-trial-ends="@trialEndsIso" data-role="@u.Role"
+                                                class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold">
+                                            <i class="fa-solid fa-sliders mr-1"></i>Manage
+                                        </button>
                                     }
                                     else
                                     {
@@ -281,6 +300,214 @@
         </div>
     </div>
 </div>
+
+<!-- Manage access modal -->
+<div id="accessModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.6);">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+            <h3 class="text-white font-bold text-sm">
+                <i class="fa-solid fa-sliders text-brand mr-2"></i>Manage Access
+            </h3>
+            <button type="button" onclick="closeAccessModal()" class="text-slate-500 hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="p-5 space-y-5">
+            <div>
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Plan</p>
+                <form id="accessPlanForm" method="post" class="flex items-center gap-2">
+                    @Html.AntiForgeryToken()
+                    <select id="accessPlanSelect" name="plan"
+                            class="flex-1 bg-slate-900 border border-slate-600 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-brand">
+                        <option value="trial">trial (14-day, 1 report)</option>
+                        <option value="starter">starter ($9.99, 10/mo)</option>
+                        <option value="pro">pro ($29.99, 75/mo)</option>
+                        <option value="free">free (legacy)</option>
+                        <option value="agency">agency (legacy)</option>
+                    </select>
+                    <button type="submit" class="px-3 py-2 rounded-lg bg-brand hover:bg-brand-dark text-white text-xs font-semibold">Set</button>
+                </form>
+            </div>
+            <div>
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Trial</p>
+                <p id="accessTrialStatus" class="text-xs text-slate-400 mb-2"></p>
+                <form id="accessTrialForm" method="post" class="flex flex-wrap items-center gap-1.5">
+                    @Html.AntiForgeryToken()
+                    <input type="number" name="days" value="14" min="0"
+                           class="w-16 bg-slate-900 border border-slate-600 rounded-lg text-xs text-white px-2 py-1.5" />
+                    <button type="submit" name="op" value="set" class="px-2.5 py-1.5 rounded-lg bg-brand hover:bg-brand-dark text-white text-xs">Set</button>
+                    <button type="submit" name="op" value="extend" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">+Extend</button>
+                    <button type="submit" name="op" value="unlimited" class="px-2.5 py-1.5 rounded-lg bg-green-600/80 hover:bg-green-600 text-white text-xs" title="Never gated">&#8734; Unlimited</button>
+                    <button type="submit" name="op" value="expire" class="px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-xs">Expire</button>
+                </form>
+            </div>
+            @if (isSuperAdmin)
+            {
+                <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Admin role</p>
+                    <p id="accessRoleStatus" class="text-xs text-slate-400 mb-2"></p>
+                    <form id="accessRoleForm" method="post" class="flex items-center gap-1.5">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" name="role" value="admin" class="px-2.5 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs">Make admin</button>
+                        <button type="submit" name="role" value="user" class="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Remove admin</button>
+                    </form>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Email user modal -->
+<div id="emailModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.6);">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+            <h3 class="text-white font-bold text-sm">
+                <i class="fa-solid fa-envelope text-brand mr-2"></i>Email <span id="emailModalName" class="text-slate-400 font-normal"></span>
+            </h3>
+            <button type="button" onclick="closeEmailModal()" class="text-slate-500 hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form id="emailModalForm" method="post" class="p-5 space-y-3">
+            @Html.AntiForgeryToken()
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Template</label>
+                <select id="emailTemplateSelect" onchange="applyEmailTemplate()"
+                        class="w-full bg-slate-900 border border-slate-600 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-brand">
+                    <option value="blank">Custom (blank)</option>
+                    <option value="feature_invite">Invite: try new features + feedback</option>
+                    <option value="checkin">Check-in / re-engagement</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">To</label>
+                <input id="emailModalTo" type="text" disabled
+                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg text-sm text-slate-400 px-3 py-2" />
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Subject</label>
+                <input id="emailSubject" name="subject" type="text" required
+                       class="w-full bg-slate-900 border border-slate-600 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Message</label>
+                <textarea id="emailBody" name="body" rows="9" required
+                          class="w-full bg-slate-900 border border-slate-600 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-brand"></textarea>
+                <p class="text-xs text-slate-500 mt-1">Feel free to edit the template text before sending.</p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" onclick="closeEmailModal()" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs">Cancel</button>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-brand hover:bg-brand-dark text-white text-xs font-semibold">
+                    <i class="fa-solid fa-paper-plane mr-1"></i>Send
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    var emailTemplates = {
+        blank: { subject: '', body: '' },
+        feature_invite: {
+            subject: "You're invited — try what's new on StormLead Pro",
+            body: "Hi {{name}},\n\nWe've been rolling out some new features on StormLead Pro — an interactive Storm Explorer map (click an address or draw an area to pull real hail history straight into your leads list), self-serve plan upgrades, and a few other improvements.\n\nWould you be up for trying a few of these out and sharing any feedback? Good or bad, it all helps us make the product better.\n\nJust reply to this email whenever you get a chance.\n\nThanks,\nThe StormLead Pro team"
+        },
+        checkin: {
+            subject: "Checking in from StormLead Pro",
+            body: "Hi {{name}},\n\nJust wanted to check in and see how things are going with StormLead Pro. Let us know if there's anything we can help with, or if you've run into any issues.\n\nThanks,\nThe StormLead Pro team"
+        }
+    };
+
+    function openEmailModal(btn) {
+        var id    = btn.dataset.id;
+        var email = btn.dataset.email;
+        var name  = btn.dataset.name;
+
+        var form = document.getElementById('emailModalForm');
+        form.action = '/Admin/Users/' + id + '/Email';
+        form.dataset.name = name || (email ? email.split('@@')[0] : 'there');
+
+        document.getElementById('emailModalTo').value = email || '';
+        document.getElementById('emailModalName').textContent = '— ' + (name || email || '');
+        document.getElementById('emailTemplateSelect').value = 'blank';
+        applyEmailTemplate();
+
+        document.getElementById('emailModal').classList.remove('hidden');
+    }
+
+    function openBroadcastEmailModal(count) {
+        var form = document.getElementById('emailModalForm');
+        form.action = '/Admin/EmailAll';
+        form.dataset.name = 'there';
+
+        document.getElementById('emailModalTo').value = 'All users (' + count + ' recipient' + (count === 1 ? '' : 's') + ', sent via BCC)';
+        document.getElementById('emailModalName').textContent = '— All Users';
+        document.getElementById('emailTemplateSelect').value = 'blank';
+        applyEmailTemplate();
+
+        document.getElementById('emailModal').classList.remove('hidden');
+    }
+
+    function closeEmailModal() {
+        document.getElementById('emailModal').classList.add('hidden');
+    }
+
+    function applyEmailTemplate() {
+        var key  = document.getElementById('emailTemplateSelect').value;
+        var tpl  = emailTemplates[key] || emailTemplates.blank;
+        var name = document.getElementById('emailModalForm').dataset.name || 'there';
+
+        document.getElementById('emailSubject').value = tpl.subject;
+        document.getElementById('emailBody').value = tpl.body.replace(/\{\{name\}\}/g, name);
+    }
+
+    document.getElementById('emailModal').addEventListener('click', function (e) {
+        if (e.target === this) closeEmailModal();
+    });
+
+    function openAccessModal(btn) {
+        var id        = btn.dataset.id;
+        var plan      = btn.dataset.plan;
+        var trialEnds = btn.dataset.trialEnds;
+        var role      = btn.dataset.role;
+
+        document.getElementById('accessPlanForm').action  = '/Admin/Users/' + id + '/Plan';
+        document.getElementById('accessTrialForm').action = '/Admin/Users/' + id + '/Trial';
+        document.getElementById('accessPlanSelect').value = plan || 'trial';
+
+        var statusEl = document.getElementById('accessTrialStatus');
+        if (!trialEnds) {
+            statusEl.textContent = 'Currently: unlimited (never gated)';
+        } else {
+            var d = new Date(trialEnds);
+            statusEl.textContent = (d.getTime() < Date.now())
+                ? 'Currently: expired (' + d.toLocaleDateString() + ')'
+                : 'Currently: ends ' + d.toLocaleDateString();
+        }
+
+        var roleForm = document.getElementById('accessRoleForm');
+        if (roleForm) {
+            roleForm.action = '/Admin/Users/' + id + '/Role';
+            var roleStatusEl = document.getElementById('accessRoleStatus');
+            var isSuper = role === 'super_admin';
+            roleStatusEl.textContent = isSuper
+                ? 'Currently: super admin (managed via login, not here)'
+                : 'Currently: ' + (role === 'admin' ? 'admin' : 'regular user');
+            var roleButtons = roleForm.querySelectorAll('button');
+            roleButtons.forEach(function (b) { b.disabled = isSuper; b.classList.toggle('opacity-40', isSuper); });
+        }
+
+        document.getElementById('accessModal').classList.remove('hidden');
+    }
+
+    function closeAccessModal() {
+        document.getElementById('accessModal').classList.add('hidden');
+    }
+
+    document.getElementById('accessModal').addEventListener('click', function (e) {
+        if (e.target === this) closeAccessModal();
+    });
+</script>
 
 </body>
 </html>

@@ -62,6 +62,18 @@ namespace RoofingLeadGeneration.Controllers
                 password == adminPassword)
             {
                 var userId = await FindOrCreateUserAsync("password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
+
+                // Always re-bootstrap this account to super_admin on every login via
+                // the break-glass credential, so it can never be locked out of admin
+                // access even if roles get reassigned or the database is restored
+                // from an older backup.
+                var breakGlassUser = await _db.Users.FindAsync(userId);
+                if (breakGlassUser != null && breakGlassUser.Role != "super_admin")
+                {
+                    breakGlassUser.Role = "super_admin";
+                    await _db.SaveChangesAsync();
+                }
+
                 await SignInUserAsync(userId, "password", adminEmail, adminEmail, adminEmail.Split('@')[0]);
                 return LocalRedirect(returnUrl ?? "/");
             }
@@ -484,6 +496,7 @@ namespace RoofingLeadGeneration.Controllers
             var user       = await _db.Users.FindAsync(userId);
             var orgId      = user?.OrgId?.ToString()  ?? "";
             var orgRole    = user?.OrgRole             ?? "owner";
+            var adminRole  = user?.Role                ?? "user";
 
             var claims = new List<Claim>
             {
@@ -494,6 +507,7 @@ namespace RoofingLeadGeneration.Controllers
                 new("user_db_id",              userId.ToString()),
                 new("user_org_id",             orgId),
                 new("user_org_role",           orgRole),
+                new("admin_role",              adminRole),
             };
 
             var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

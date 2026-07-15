@@ -192,6 +192,7 @@ using (var scope = app.Services.CreateScope())
 
     // ── Schema patches ────────────────────────────────────────────────────
     AddColumnIfMissing("users", "is_admin",            "INTEGER NOT NULL DEFAULT 0");
+    AddColumnIfMissing("users", "role",                "TEXT NOT NULL DEFAULT 'user'");
     AddColumnIfMissing("users", "org_id",              "INTEGER REFERENCES orgs(id) ON DELETE SET NULL");
     AddColumnIfMissing("users", "org_role",            "TEXT NOT NULL DEFAULT 'owner'");
     AddColumnIfMissing("users", "password_hash",       "TEXT");

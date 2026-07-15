@@ -15,6 +15,15 @@ namespace RoofingLeadGeneration.Data.Models
         public DateTime? PasswordResetExpiresAt { get; set; }
         public DateTime CreatedAt  { get; set; } = DateTime.UtcNow;
         public bool    IsAdmin     { get; set; }
+        /// <summary>
+        /// Platform admin tier: "user" (default) | "admin" | "super_admin".
+        /// Admin panel access requires "admin" or "super_admin". Only "super_admin"
+        /// can promote/demote other admins (see AdminController.IsSuperAdmin).
+        /// Whoever authenticates via the Auth:AdminEmail/AdminPassword break-glass
+        /// credential is always re-bootstrapped to "super_admin" on login, so that
+        /// credential can never be locked out of admin access.
+        /// </summary>
+        public string  Role        { get; set; } = "user";
         public long?   OrgId      { get; set; }
         /// <summary>owner | manager | rep</summary>
         public string  OrgRole    { get; set; } = "owner";
